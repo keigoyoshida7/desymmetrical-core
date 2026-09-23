@@ -13,6 +13,7 @@ dialog p{font-size:12px;line-height:1.75;color:#bdbdbd}dialog strong{color:#eee;
 @media(max-width:900px){.brand p{max-width:390px;font-size:8px}.header-right{gap:7px}.info-grid{grid-template-columns:1fr;gap:0}}
 
 /* Core edition: clearer geometry controls and a usable narrow-screen layout. */
+.name-size-controls{display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:10px;align-items:center}
 a{color:inherit;text-underline-offset:3px}a:hover{color:#fff}.brand a{color:#b4bed0}.brand .phi{color:#b7c7ea}
 #selection h3{color:#b7c7ea}.panel-title{color:#b7c7ea}.hint{font-size:11px}.scene-caption{max-width:90%}.scene-caption p{line-height:1.6}
 .workspace{grid-template-columns:292px minmax(340px,1fr) 302px}.section-body .readout{overflow-wrap:anywhere}button:disabled{opacity:.4;cursor:default}

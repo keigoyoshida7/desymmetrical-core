@@ -3,9 +3,12 @@ import {clamp,fromThree,toThree,type SceneState,type Vec3} from './model';
 export const lengths=[.16,.43,.39,.16,.12,.09];
 export const axes=[new Vector3(0,1,0),new Vector3(1,0,0),new Vector3(1,0,0),new Vector3(0,0,1),new Vector3(1,0,0),new Vector3(0,0,1)];
 export const basePosition=(s:SceneState):Vec3=>s.robot.base;
+// Three.js coordinates. The ceiling shoulder descends along the yaw axis;
+// the remaining links bend outward/downward from its lower hinge.
+export const linkOffset=(mount:SceneState['robot']['mount'],i:number):Vec3=>i===0&&mount==='ceiling'?[0,-lengths[i],0]:[0,0,-lengths[i]];
 export function forward(s:SceneState,joints=s.robot.joints){
  const matrix=new Matrix4().makeTranslation(...toThree(basePosition(s)));const points=[new Vector3().setFromMatrixPosition(matrix)];const matrices:Matrix4[]=[];
- joints.forEach((j,i)=>{matrix.multiply(new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromAxisAngle(axes[i],j*Math.PI/180)));matrices.push(matrix.clone());matrix.multiply(new Matrix4().makeTranslation(0,0,-lengths[i]));points.push(new Vector3().setFromMatrixPosition(matrix));});
+ joints.forEach((j,i)=>{matrix.multiply(new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromAxisAngle(axes[i],j*Math.PI/180)));matrices.push(matrix.clone());matrix.multiply(new Matrix4().makeTranslation(...linkOffset(s.robot.mount,i)));points.push(new Vector3().setFromMatrixPosition(matrix));});
  return {matrices,points,tip:fromThree(points.at(-1)!.toArray() as Vec3)};
 }
 export function solveTarget(s:SceneState,dt:number){

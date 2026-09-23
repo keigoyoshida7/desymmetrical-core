@@ -9,7 +9,7 @@ export interface Mapping {enabled:boolean;min:number;max:number;}
 export interface SceneState {
  version:2; edition:'core'; room:{width:number;depth:number;height:number;wallHeight:number;entranceWidth:number;corridorDepth:number};
  speakerSetup:SpeakerSetup; acrylic:Acrylic; stone:{position:Vec3;yaw:number;width:number;depth:number;height:number};
- robot:{joints:number[];control:'joints'|'target';target:Vec3;base:Vec3};
+ robot:{joints:number[];control:'joints'|'target';target:Vec3;base:Vec3;mount:'ceiling'|'side'};
  light:{position:Vec3;intensity:number};
  listener:{position:Vec3;yaw:number}; speakers:Speaker[];sources:Source[];
  shadow:{mode:'derived'|'manual';centroid:Vec3;area:number;penumbra:number;density:number;entropy:number};
@@ -50,13 +50,16 @@ export function validAcrylic(a:Acrylic){const p=acrylicPlan(a);return p.top[1][0
 // Local +Y is the sculpture front; +90° around Three's up axis points it toward the -X entrance.
 export const ENTRANCE_YAW=90;
 export function faceEntrance(s:SceneState){s.acrylic.yaw=ENTRANCE_YAW;s.stone.yaw=ENTRANCE_YAW;}
+// The support runs vertically from the room ceiling to this attachment point.
+// Keep the chosen height and pose when re-centring a customised installation.
+export function centerSupportOverAcrylic(s:SceneState){s.robot.base=[s.acrylic.position[0],s.acrylic.position[1],s.robot.base[2]];s.robot.mount='ceiling';}
 export function synchronizeArmSpeaker(s:SceneState){const arm=s.speakers.find(x=>x.role==='arm');if(arm)arm.position=s.light.position.map((v,i)=>v+s.speakerSetup.armOffset[i]) as Vec3;}
 export function defaults():SceneState{
  const room={width:7,depth:7,height:7,wallHeight:5.4,entranceWidth:1.6,corridorDepth:2};const speakerSetup=defaultSpeakerSetup();
  const s:SceneState={version:2,edition:'core',room,speakerSetup,
  acrylic:{position:[0,0,0],yaw:ENTRANCE_YAW,bottomFrontWidth:2.7,bottomRearWidth:1.4,depth:1.4,height:.35,slope:32.5,thickness:.008},
  stone:{position:[0,0,.319/2],yaw:ENTRANCE_YAW,width:.512,depth:.354,height:.319},
- robot:{joints:[0,25,-55,0,15,0],control:'joints',target:[0,0,.8],base:[0,-1,1.3]},
+ robot:{joints:[90,-35,-65,0,10,0],control:'joints',target:[0,0,.8],base:[0,0,1.85],mount:'ceiling'},
  light:{position:[0,0,1],intensity:.7},listener:{position:[0,2,1.6],yaw:180},speakers:speakerLayout(room,speakerSetup),
  sources:Array.from({length:4},(_,i)=>({id:i+1,position:[-.375+i*.25,.3,.7] as Vec3,spread:20,room:35,env:25})),
  shadow:{mode:'derived',centroid:[0,0,.5],area:.35,penumbra:.3,density:.65,entropy:.3},
@@ -96,6 +99,8 @@ export function validateScene(input:unknown):SceneState {
  // Earlier Core v2 presets/recordings had an unrotated stone and no stone yaw field.
  // Preserve that original orientation rather than applying the new default on import.
  if(s.stone&&typeof s.stone==='object'&&!Object.hasOwn(s.stone,'yaw'))s.stone.yaw=0;
+ // Earlier Core files extended the first arm link horizontally. Keep their geometry and custom base.
+ if(s.robot&&typeof s.robot==='object'&&!Object.hasOwn(s.robot,'mount'))s.robot.mount='side';
  shape(s,template,'scene');
  const ok=(v:boolean,message:string)=>{if(!v)throw Error(message);};
  ok(s.sources.length>=1&&s.sources.length<=8,'Use 1–8 sources');
@@ -104,6 +109,7 @@ export function validateScene(input:unknown):SceneState {
  const v3=(v:Vec3)=>v.length===3&&v.every(n=>Math.abs(n)<=25);
  ok([...s.sources,...s.speakers,s.listener,s.light,s.stone,s.acrylic].every(x=>v3(x.position))&&v3(s.robot.target)&&v3(s.robot.base)&&v3(s.motion.center)&&v3(s.shadow.centroid)&&v3(s.speakerSetup.armOffset),'Invalid XYZ coordinates');
  ok(s.robot.joints.length===6&&s.robot.joints.every(x=>Math.abs(x)<=180),'Expected six joints within ±180°');
+ ok(['ceiling','side'].includes(s.robot.mount),'Invalid robot mounting');
  ok(['joints','target'].includes(s.robot.control)&&['derived','manual'].includes(s.shadow.mode),'Invalid control mode');
  ok(['direct','virtualspeakers'].includes(s.monitoring),'Invalid monitoring mode');
  ok(['MANUAL','CIRCLE','ELLIPSE','ORBIT','FIGURE 8','SLOW SCAN','PENDULUM','RANDOM SMOOTH','RANDOM POINTS','KEYFRAMES'].includes(s.motion.mode),'Invalid movement mode');

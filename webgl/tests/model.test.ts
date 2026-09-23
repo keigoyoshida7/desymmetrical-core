@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Vector3} from 'three';
-import {defaults,relative,absolute,toThree,fromThree,cartesian,spherical,distance,validateScene,speakerLayout,acrylicPlan,faceEntrance,synchronizeArmSpeaker,Store,type MotionMode,type Vec3} from '../src/model';
+import {Group,Vector3} from 'three';
+import {defaults,relative,absolute,toThree,fromThree,cartesian,spherical,distance,validateScene,speakerLayout,acrylicPlan,faceEntrance,centerSupportOverAcrylic,synchronizeArmSpeaker,Store,type MotionMode,type Vec3} from '../src/model';
 import {advanceMotion,motionPosition,motionPresets,setMotionPreset} from '../src/motion';
-import {forward,solveTarget} from '../src/robot';
+import {axes,lengths,linkOffset,forward,solveTarget} from '../src/robot';
 import {applyMappings} from '../src/mappings';
 import {SpatOscAdapter,sceneMessages} from '../src/osc/adapter';
 import {parsePresets,parseRecording,interpolateFrames,Recorder,PRESET_KEY,savePresets,loadPresets} from '../src/storage';
@@ -42,6 +42,34 @@ test('Core validation rejects impossible dimensions, malformed geometry and inco
 test('arm speaker tracks the light for UI changes, interpolation and OSC',()=>{const store=new Store();store.change(s=>{s.light.position=[1,2,3];s.speakerSetup.armOffset=[.1,.2,.3];});assert.deepEqual(store.state.speakers[16].position,[1.1,2.2,3.3]);store.state.light.position=[2,3,4];const messages=sceneMessages(store.state);assert.deepEqual(store.state.speakers[16].position,[2.1,3.2,4.3]);assert.deepEqual(messages.find(x=>x.address==='/speakers/xyz')!.args.slice(48),relative([2.1,3.2,4.3],store.state.listener));const next=structuredClone(store.state);next.light.position=[4,5,6];synchronizeArmSpeaker(next);const mid=interpolateFrames([{t:0,scene:store.state},{t:2,scene:next}],1);assert.deepEqual(mid.speakers[16].position,[3.1,4.2,5.3]);});
 test('Core presets use isolated storage and imported playback stays paused',()=>{const data=new Map([['dotarea.webgl.presets.v1','[{"name":"legacy"}]']]);const original=Object.getOwnPropertyDescriptor(globalThis,'localStorage');Object.defineProperty(globalThis,'localStorage',{value:{getItem:(k:string)=>data.get(k)||null,setItem:(k:string,v:string)=>data.set(k,v)},configurable:true});try{assert.deepEqual(loadPresets(),[]);const s=defaults();s.motion.playing=true;savePresets([{name:'Core test',scene:s}]);assert.ok(data.has(PRESET_KEY));const presets=loadPresets();assert.equal(presets[0].scene.motion.playing,false);assert.equal(presets[0].scene.speakers.length,18);assert.throws(()=>parsePresets([null]),/Invalid preset/);}finally{if(original)Object.defineProperty(globalThis,'localStorage',original);else Reflect.deleteProperty(globalThis,'localStorage');}});
 test('six-joint forward hierarchy; bounded IK reduces reachable target error',()=>{const s=defaults();const start=forward(s).tip;s.robot.joints[0]+=30;assert.ok(distance(start,forward(s).tip)>.05);const desired=[...s.robot.joints];desired[1]+=10;desired[2]-=8;s.robot.target=forward(s,desired).tip;const before=distance(forward(s).tip,s.robot.target);for(let i=0;i<120;i++){const old=[...s.robot.joints];solveTarget(s,1/60);s.robot.joints.forEach((v,k)=>assert.ok(Math.abs(v-old[k])<=35/60+1e-9));}assert.ok(distance(forward(s).tip,s.robot.target)<before/2);assert.equal(forward(s).points.length,7);});
+test('ceiling support is centred over acrylic and the default arm descends to peek over the stone',()=>{
+ const s=defaults(),fk=forward(s),points=fk.points.map(p=>fromThree(p.toArray()));
+ assert.equal(s.robot.mount,'ceiling');assert.deepEqual(s.robot.base.slice(0,2),s.acrylic.position.slice(0,2));
+ near(points[1][0],s.robot.base[0]);near(points[1][1],s.robot.base[1]);near(points[1][2],s.robot.base[2]-lengths[0]);
+ for(let i=1;i<points.length;i++){near(distance(points[i],points[i-1]),lengths[i-1]);assert.ok(points[i][2]<points[i-1][2]);}
+ assert.ok(points.every(p=>p[2]>s.acrylic.position[2]+s.acrylic.height+.10));
+ assert.ok(fk.tip[0]<-.2&&fk.tip[0]>-.4);near(fk.tip[1],0);assert.ok(fk.tip[2]>.6&&fk.tip[2]<.8);
+});
+test('recentring the support follows the moved acrylic while preserving chosen height and pose',()=>{
+ const s=defaults();s.robot.mount='side';s.robot.base=[-.8,.4,2.1];s.robot.joints[1]=-50;s.acrylic.position=[.7,-.3,.02];const before=structuredClone(s);
+ centerSupportOverAcrylic(s);assert.deepEqual(s,{...before,robot:{...before.robot,base:[.7,-.3,2.1],mount:'ceiling'}});
+});
+test('older Core arm presets preserve their horizontal shoulder and custom base; mounting is discrete in recordings',()=>{
+ const legacy=JSON.parse(JSON.stringify(defaults()));delete legacy.robot.mount;legacy.robot.base=[.2,-1,1.3];legacy.robot.joints=[0,0,0,0,0,0];
+ const loaded=parsePresets([{name:'Old support',scene:legacy}])[0].scene;assert.equal(loaded.robot.mount,'side');assert.deepEqual(loaded.robot.base,legacy.robot.base);assert.equal(Object.hasOwn(legacy.robot,'mount'),false);
+ const tip=forward(loaded).tip;near(tip[0],.2);near(tip[1],-1+lengths.reduce((a,b)=>a+b,0));near(tip[2],1.3);
+ const current=defaults(),frames=parseRecording({version:2,edition:'core',frames:[{t:0,scene:legacy},{t:2,scene:current}]});
+ assert.equal(interpolateFrames(frames,0).robot.mount,'side');assert.equal(interpolateFrames(frames,1).robot.mount,'side');assert.equal(interpolateFrames(frames,2).robot.mount,'ceiling');
+ interpolateFrames(frames,1).robot.base.forEach((value,i)=>near(value,[.1,-.5,1.575][i]));
+ for(const mount of [undefined,null,'floor',2])assert.throws(()=>validateScene({...current,robot:{...current.robot,mount}}),/mount/);
+});
+test('rendered joint hierarchy and FK agree in both mount configurations',()=>{
+ const s=defaults();s.robot.base=[.3,-.2,2];s.robot.joints=[23,-40,-60,12,17,-9];
+ for(const mount of ['ceiling','side'] as const){s.robot.mount=mount;const root=new Group();root.position.set(...toThree(s.robot.base));let parent=root;
+  s.robot.joints.forEach((value,i)=>{const joint=new Group(),end=new Group();joint.quaternion.setFromAxisAngle(axes[i],value*Math.PI/180);end.position.set(...linkOffset(mount,i));parent.add(joint);joint.add(end);parent=end;});
+  const actual=fromThree(parent.getWorldPosition(new Vector3()).toArray());forward(s).tip.forEach((value,i)=>near(value,actual[i]));
+ }
+});
 test('finite motion modes and calm presets',()=>{const s=defaults();for(const mode of ['MANUAL','CIRCLE','ELLIPSE','ORBIT','FIGURE 8','SLOW SCAN','PENDULUM','RANDOM SMOOTH','RANDOM POINTS','KEYFRAMES'] as MotionMode[]){s.motion.mode=mode;for(let i=0;i<=100;i++){s.motion.phase=i/100;const p=motionPosition(s.motion);assert.ok(p.every(Number.isFinite));assert.deepEqual(p,motionPosition(s.motion));}}motionPresets.forEach((_,i)=>{setMotionPreset(s,i);assert.ok(i===6?s.motion.duration>=5:s.motion.duration>=55);assert.equal(s.motion.playing,false);});});
 test('motion transport handles loop, once, reverse and pingpong',()=>{const s=defaults();s.motion.playing=true;s.motion.phase=.999;s.motion.duration=5;advanceMotion(s,.1);assert.ok(s.motion.phase<.03);s.motion.loop='once';s.motion.phase=.999;advanceMotion(s,.1);assert.equal(s.motion.phase,1);assert.equal(s.motion.playing,false);s.motion.playing=true;s.motion.loop='pingpong';advanceMotion(s,.1);assert.equal(s.motion.direction,-1);s.motion.loop='once';s.motion.phase=.001;advanceMotion(s,.1);assert.equal(s.motion.phase,0);});
 test('looping motion remains playing and wraps through at least two cycles',()=>{const s=defaults();s.motion.playing=true;s.motion.mode='ORBIT';s.motion.loop='loop';s.motion.duration=5;let wraps=0,previous=s.motion.phase;for(let i=0;i<110;i++){advanceMotion(s,.1);if(s.motion.phase<previous)wraps++;previous=s.motion.phase;}assert.ok(wraps>=2);assert.equal(s.motion.playing,true);});

@@ -26,6 +26,8 @@ The source is `De-symmetrical_Core_EN_v7.pdf`. That document explicitly leaves s
 
 The public website is a **visual study**. It does not produce browser audio, measure shadows from cameras, simulate acrylic optics, or control robot hardware. For audio, run this repository locally with Max and IRCAM Spat 5. The four-voice prototype is not the full 257-source production synthesis described by the artwork proposal.
 
+Use **Scene labels → Name size** to adjust channel and object names from 0.1 to 18 px (default 6 px). The slider and numeric input update immediately; the preference is remembered in this browser separately from scene presets. **Stone & suspended arm → Centre support over acrylic** aligns the vertical ceiling support with the acrylic's X/Y centre while retaining its attachment height.
+
 ## Run locally
 
 Use Node.js 22.12 or newer.

@@ -13,7 +13,7 @@ Source: `De-symmetrical_Core_EN_v7.pdf`, supplied by Keigo Yoshida. Page numbers
 | Main drivers | p.14: Eminence ALPHA4-8, 116.1 mm diameter, custom enclosure TBC | Round driver with cone/surround in a custom-baffle proxy. Diameter and baffle size editable |
 | Acrylic | pp.3/16: trapezoidal base and top, 32.5° slope; sizes provisional | Four sloping faces plus top; parallel inward offset derives the top polygon. Model convention measures face slope from the floor. All lengths and orientation editable |
 | Floor | pp.9/16: black carpet, white only beneath acrylic | Black floor with white inset matching acrylic base |
-| Arm support | pp.7/16: overhead support / suspended arm; fixing and orientation TBC | Suspended visual support and generic six-joint model; no measured industrial kinematics |
+| Arm support | pp.7/16: overhead support / suspended arm; fixing and orientation TBC | Artist-directed vertical ceiling support over the acrylic, with a downward shoulder and bent six-joint arm; no measured industrial kinematics |
 | Cameras | pp.7/16: two shadow cameras plus Camera 3 | Three visual markers; no real capture or analysis |
 | Sound | Original Max prototype and Core p.11 channel plan | Four sources, direct binaural or 17-speaker virtual monitoring, with source/layout OSC exchange |
 
@@ -26,7 +26,7 @@ The document does not specify acrylic lengths, the exact stone size, surveyed sp
 - Entrance orientation: following the artist's 2026-09-23 direction, the acrylic's long front edge and the stone's defined front face the left entrance (world −X; yaw 90°). Both orientations remain editable. Older Core saves preserve their original stone orientation; the entrance-alignment button applies the new orientation to both objects.
 - Wall positions: 3.50 m pair spacing, 0.16 m inset, lower height 1.20 m and upper height 4.20 m. These are editable layout assumptions, not installation instructions.
 - Baffle: 0.16 × 0.16 × 0.075 m; driver depth 0.055 m. Only the 0.1161 m outside diameter is taken from the supplied driver specification.
-- Generic arm suspension base and link lengths are visualization choices. No collision checks, mounting-load calculations, robot commands or safety functions exist.
+- Generic arm suspension base and link lengths are visualization choices. The default ceiling attachment descends to [0, 0, 1.85] m directly above the acrylic; its first arm segment descends 0.16 m and the remaining joints bend toward the stone. Attachment height and position are editable, with a button to re-centre X/Y over the acrylic. Older saves retain their original side-style shoulder and custom base. No collision checks, mounting-load calculations, robot commands or safety functions exist.
 
 The source mentions golden-ratio composition but does not fully dimension it. The app does not invent a uniquely “correct” golden-ratio solid. The current trapezoid is one adjustable interpretation, with impossible/collapsed top faces rejected.
 

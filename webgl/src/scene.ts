@@ -1,14 +1,14 @@
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { axes, basePosition, lengths } from './robot';
+import { axes, basePosition, lengths, linkOffset } from './robot';
 import { acrylicPlan, clamp, fromThree, toThree, type SceneState, type Speaker, type Store, type Vec3 } from './model';
 
 export type Selection = { kind: 'source' | 'speaker' | 'listener' | 'target' | 'light' | 'stone' | 'shell' | 'robot'; id: string };
 const gold = 0xd99d71, lavender = 0x94a9e2;
 const mat = (color: number, extra: T.MeshStandardMaterialParameters = {}) => new T.MeshStandardMaterial({ color, roughness: .65, metalness: .12, ...extra });
 
-function label(text: string, color = '#b4b9c5', width = .62, pixels = 10) {
+function label(text: string, color = '#b4b9c5', width = .62, pixels?: number) {
  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')!;
  ctx.font = '500 38px sans-serif'; canvas.width = Math.ceil(ctx.measureText(text).width + 28); canvas.height = 72;
  ctx.font = '500 38px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = color;
@@ -16,7 +16,7 @@ function label(text: string, color = '#b4b9c5', width = .62, pixels = 10) {
  const texture = new T.CanvasTexture(canvas); texture.colorSpace = T.SRGBColorSpace;
  const sprite = new T.Sprite(new T.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
  sprite.scale.set(width, width * canvas.height / canvas.width, 1);
- sprite.userData.labelAspect = canvas.width / canvas.height; sprite.userData.labelPixels = pixels;
+ sprite.userData.labelAspect = canvas.width / canvas.height; sprite.userData.labelPixels = pixels; sprite.userData.nameLabel = pixels === undefined;
  sprite.renderOrder = 5; return sprite;
 }
 function mesh(g: T.BufferGeometry, m: T.Material) { const o = new T.Mesh(g, m); o.castShadow = true; return o; }
@@ -60,8 +60,10 @@ export class InstallationScene {
  renderer: T.WebGLRenderer;
  scene = new T.Scene(); camera = new T.PerspectiveCamera(45, 1, .02, 150); controls: OrbitControls; transform: TransformControls;
  selected: Selection = { kind: 'stone', id: 'stone' }; editMode = false;
+ private nameLabelPixels = 6;
  private objects = new Map<string, T.Object3D>(); private speakerObjects: T.Group[] = []; private sourceObjects: T.Group[] = [];
  private room = new T.Group(); private robot = new T.Group(); private suspension = new T.Group(); private joints: T.Group[] = [];
+ private shoulder!: T.Mesh; private shoulderEnd!: T.Group;
  private effector = new T.Group(); private listener = new T.Group(); private target = new T.Group();
  private sculpture = new T.Group(); private stone: T.Mesh; private shell = new T.Group(); private light: T.SpotLight;
  private ray: T.Line; private path: T.Line;
@@ -100,6 +102,7 @@ export class InstallationScene {
    joint.add(mesh(new T.SphereGeometry(.058, 16, 10), mat(i % 2 ? 0xaaaaaa : 0xbdbdbd)));
    const arm = mesh(new T.CylinderGeometry(.033, .044, length, 12), mat(0x777d88)); arm.rotation.x = Math.PI / 2; arm.position.z = -length / 2; joint.add(arm);
    const end = new T.Group(); end.position.z = -length; joint.add(end); parent = end;
+   if (i === 0) { this.shoulder = arm; this.shoulderEnd = end; }
   });
   parent.add(this.effector);
   const fixture = mesh(new T.CylinderGeometry(.036, .055, .10, 24), mat(0x252832)); fixture.rotation.x = Math.PI / 2;
@@ -149,7 +152,7 @@ export class InstallationScene {
     new T.Vector3(-w / 2, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, d / 2),
     new T.Vector3(-w / 2 - corridor, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, -d / 2),
    ]), new T.LineBasicMaterial({ color: 0x596275 })); this.room.add(corridorEdge);
-   const entry = label('LIGHT LOCK', '#a5afc4', 1.6, 11); entry.position.set(-w / 2 - corridor / 2, .07, 0); this.room.add(entry);
+   const entry = label('LIGHT LOCK', '#a5afc4', 1.6); entry.position.set(-w / 2 - corridor / 2, .07, 0); this.room.add(entry);
   }
   dimension(this.room, new T.Vector3(-w / 2, .03, d / 2 + .34), new T.Vector3(w / 2, .03, d / 2 + .34), `${w.toFixed(2)} m`, new T.Vector3(0, .08, .12));
   dimension(this.room, new T.Vector3(w / 2 + .34, .03, -d / 2), new T.Vector3(w / 2 + .34, .03, d / 2), `${d.toFixed(2)} m`, new T.Vector3(.15, .08, 0));
@@ -209,6 +212,9 @@ export class InstallationScene {
   this.roomBuild(s); this.sculptureBuild(s); this.suspensionBuild(s); this.speakerBuild(s);
   this.stone.scale.set(s.stone.width, s.stone.height, s.stone.depth); this.stone.position.set(...toThree(s.stone.position)); this.stone.rotation.y = s.stone.yaw * Math.PI / 180;
   this.robot.position.set(...toThree(basePosition(s))); this.joints.forEach((joint, i) => joint.quaternion.setFromAxisAngle(axes[i], s.robot.joints[i] * Math.PI / 180));
+  const shoulderOffset = new T.Vector3(...linkOffset(s.robot.mount, 0));
+  this.shoulderEnd.position.copy(shoulderOffset); this.shoulder.position.copy(shoulderOffset).multiplyScalar(.5);
+  this.shoulder.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), shoulderOffset.normalize());
   this.light.intensity = s.light.intensity * 60; this.target.position.set(...toThree(s.robot.target)); this.target.visible = s.robot.control === 'target';
   this.listener.position.set(...toThree(s.listener.position)); this.listener.rotation.y = -s.listener.yaw * Math.PI / 180;
   this.speakerObjects.forEach((group, i) => {
@@ -296,6 +302,7 @@ export class InstallationScene {
   }
  }
  setPath(points: Vec3[]) { this.path.geometry.dispose(); this.path.geometry = new T.BufferGeometry().setFromPoints(points.map(p => new T.Vector3(...toThree(p)))); }
+ setNameSize(pixels: number) { if (Number.isFinite(pixels)) this.nameLabelPixels = clamp(pixels, .1, 18); }
  resize() { const width = this.host.clientWidth, height = this.host.clientHeight; this.camera.aspect = width / Math.max(1, height); this.camera.updateProjectionMatrix(); this.renderer.setSize(width, height); }
  render() {
   if (this.disposed) return; this.controls.update();
@@ -303,7 +310,8 @@ export class InstallationScene {
   this.scene.traverse(object => {
    if (object instanceof T.Sprite && object.userData.labelAspect) {
     const distance = this.camera.position.distanceTo(object.getWorldPosition(new T.Vector3()));
-    const height = distance * unitsPerPixel * object.userData.labelPixels * 72 / 38;
+    const pixels = object.userData.nameLabel ? this.nameLabelPixels : object.userData.labelPixels;
+    const height = distance * unitsPerPixel * pixels * 72 / 38;
     object.scale.set(height * object.userData.labelAspect, height, 1);
    }
   });
