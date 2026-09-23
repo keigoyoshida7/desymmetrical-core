@@ -1,79 +1,312 @@
 import * as T from 'three';
-import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {TransformControls} from 'three/addons/controls/TransformControls.js';
-import {axes,basePosition,lengths} from './robot';
-import {clamp,fromThree,toThree,type SceneState,type Store,type Vec3} from './model';
-export type Selection={kind:'source'|'speaker'|'listener'|'target'|'light'|'stone'|'shell'|'robot';id:string};
-const mint=0x77af8c,gold=0xc77575,lavender=0x7899c5;
-const mat=(color:number,extra:T.MeshStandardMaterialParameters={})=>new T.MeshStandardMaterial({color,roughness:.65,metalness:.12,...extra});
-function label(text:string,color='#d1d1d1'){
- const canvas=document.createElement('canvas');canvas.width=256;canvas.height=64;const ctx=canvas.getContext('2d')!;ctx.font='500 28px sans-serif';ctx.textAlign='center';ctx.fillStyle=color;ctx.fillText(text,128,40);
- const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;const sprite=new T.Sprite(new T.SpriteMaterial({map:texture,transparent:true,depthTest:false}));sprite.scale.set(.42,.105,1);sprite.renderOrder=5;return sprite;
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { axes, basePosition, lengths } from './robot';
+import { acrylicPlan, clamp, fromThree, toThree, type SceneState, type Speaker, type Store, type Vec3 } from './model';
+
+export type Selection = { kind: 'source' | 'speaker' | 'listener' | 'target' | 'light' | 'stone' | 'shell' | 'robot'; id: string };
+const gold = 0xd99d71, lavender = 0x94a9e2;
+const mat = (color: number, extra: T.MeshStandardMaterialParameters = {}) => new T.MeshStandardMaterial({ color, roughness: .65, metalness: .12, ...extra });
+
+function label(text: string, color = '#b4b9c5', width = .62) {
+ const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')!;
+ ctx.font = '500 38px sans-serif'; canvas.width = Math.ceil(ctx.measureText(text).width + 28); canvas.height = 72;
+ ctx.font = '500 38px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = color;
+ ctx.fillText(text, canvas.width / 2, 48);
+ const texture = new T.CanvasTexture(canvas); texture.colorSpace = T.SRGBColorSpace;
+ const sprite = new T.Sprite(new T.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+ sprite.scale.set(width, width * canvas.height / canvas.width, 1);
+ sprite.userData.labelAspect = canvas.width / canvas.height; sprite.userData.labelPixels = width > .8 ? 11 : 12;
+ sprite.renderOrder = 5; return sprite;
 }
-function mesh(g:T.BufferGeometry,m:T.Material){const o=new T.Mesh(g,m);o.castShadow=true;return o;}
+function mesh(g: T.BufferGeometry, m: T.Material) { const o = new T.Mesh(g, m); o.castShadow = true; return o; }
+function dispose(o: T.Object3D) {
+ o.traverse(child => {
+  if (child instanceof T.Mesh || child instanceof T.Line || child instanceof T.Sprite) {
+   if ('geometry' in child) child.geometry.dispose();
+   for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
+    if (m instanceof T.SpriteMaterial) m.map?.dispose(); m.dispose();
+   }
+  }
+ });
+}
+function dimension(group: T.Group, a: T.Vector3, b: T.Vector3, text: string, offset: T.Vector3) {
+ const points = [a, b], tick = offset.clone().normalize().multiplyScalar(.07);
+ for (const p of [a, b]) points.push(p.clone().sub(tick), p.clone().add(tick));
+ group.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(points), new T.LineBasicMaterial({ color: 0x747f95, transparent: true, opacity: .65 })));
+ const l = label(text, '#a9b2c6', .9); l.position.copy(a).lerp(b, .5).add(offset); group.add(l);
+}
+function shapeFromPlan(vertices: Vec3[]) {
+ const shape = new T.Shape(); vertices.forEach(([x, y], i) => i ? shape.lineTo(x, y) : shape.moveTo(x, y)); shape.closePath();
+ return shape;
+}
+function acrylicPanels(bottom: Vec3[], top: Vec3[], thickness: number) {
+ const vertices: number[] = [], indices: number[] = [];
+ const faces = bottom.map((p, i) => [p, bottom[(i + 1) % 4], top[(i + 1) % 4], top[i]]);
+ faces.push(top);
+ for (const face of faces) {
+  const points = face.map(p => new T.Vector3(...toThree(p)));
+  const normal = points[1].clone().sub(points[0]).cross(points[2].clone().sub(points[0])).normalize().multiplyScalar(thickness / 2);
+  const start = vertices.length / 3;
+  for (const side of [-1, 1]) for (const p of points) vertices.push(...p.clone().addScaledVector(normal, side).toArray());
+  // Each sheet is represented as a solid slab. Joint construction remains a fabrication decision.
+  indices.push(start, start + 1, start + 2, start, start + 2, start + 3, start + 4, start + 6, start + 5, start + 4, start + 7, start + 6);
+  for (let i = 0; i < 4; i++) { const next = (i + 1) % 4; indices.push(start + i, start + 4 + i, start + next, start + next, start + 4 + i, start + 4 + next); }
+ }
+ const geometry = new T.BufferGeometry(); geometry.setAttribute('position', new T.Float32BufferAttribute(vertices, 3)); geometry.setIndex(indices); geometry.computeVertexNormals(); return geometry;
+}
+
 export class InstallationScene {
- renderer:T.WebGLRenderer;scene=new T.Scene();camera=new T.PerspectiveCamera(45,1,.02,60);controls:OrbitControls;transform:TransformControls;
- selected:Selection={kind:'stone',id:'stone'};editMode=false;private objects=new Map<string,T.Object3D>();private speakerObjects:T.Group[]=[];private sourceObjects:T.Group[]=[];
- private room=new T.Group();private robot=new T.Group();private joints:T.Group[]=[];private effector=new T.Group();private listener=new T.Group();private target=new T.Group();
- private stone:T.Mesh;private shell:T.Mesh;private light:T.PointLight;private ray:T.Line;private shadowVector:T.ArrowHelper;private shadowFoot:T.Mesh;private path:T.Line;private roomSignature='';
- private raycaster=new T.Raycaster();private start=[0,0];private disposed=false;
- constructor(private host:HTMLElement,private store:Store,private select:()=>void){
-  this.renderer=new T.WebGLRenderer({antialias:true,alpha:false});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=T.PCFSoftShadowMap;this.renderer.outputColorSpace=T.SRGBColorSpace;this.renderer.toneMapping=T.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.25;host.append(this.renderer.domElement);
-  this.scene.background=new T.Color(0x161616);this.scene.fog=new T.Fog(0x161616,8,20);
-  this.scene.add(new T.HemisphereLight(0xededed,0x252525,2));const fill=new T.DirectionalLight(0xe4e4e4,2.3);fill.position.set(1,5,3);this.scene.add(fill);
-  this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=true;this.controls.maxDistance=12;this.controls.minDistance=.3;this.controls.target.set(-.25,.85,0);
-  this.transform=new TransformControls(this.camera,this.renderer.domElement);this.transform.setSize(.7);this.transform.setTranslationSnap(.01);this.scene.add(this.transform.getHelper());
-  this.transform.addEventListener('dragging-changed',e=>{this.controls.enabled=!e.value;});
-  this.transform.addEventListener('objectChange',()=>this.drag());
-  this.scene.add(this.room,this.robot,this.listener,this.target);
-  const g=new T.IcosahedronGeometry(1,2),position=g.attributes.position;
-  for(let i=0;i<position.count;i++){const v=new T.Vector3().fromBufferAttribute(position,i);const r=.88+.16*Math.sin(v.x*9+v.y*13)*Math.cos(v.z*11);v.multiplyScalar(r);position.setXYZ(i,v.x,v.y,v.z);}
-  g.computeBoundingBox();const bounds=g.boundingBox!,size=bounds.getSize(new T.Vector3());g.translate(...bounds.getCenter(new T.Vector3()).multiplyScalar(-1).toArray());g.scale(.512/size.x,.319/size.y,.354/size.z);g.computeVertexNormals();
-  this.stone=mesh(g,mat(0x686868,{flatShading:true}));this.stone.position.set(-.45,.319/2,0);this.scene.add(this.stone);this.register(this.stone,{kind:'stone',id:'stone'});
-  this.shell=mesh(this.shellGeometry(),mat(0xc8c8c8,{transparent:true,opacity:.14,side:T.DoubleSide,depthWrite:false,roughness:.15}));this.shell.position.x=-.45;this.shell.castShadow=false;this.scene.add(this.shell);this.register(this.shell,{kind:'shell',id:'shell'});
-  const shellEdges=new T.LineSegments(new T.EdgesGeometry(this.shell.geometry,35),new T.LineBasicMaterial({color:0x8b8b8b,transparent:true,opacity:.65}));this.shell.add(shellEdges);
-  let parent=this.robot;
-  lengths.forEach((L,i)=>{const joint=new T.Group();parent.add(joint);this.joints.push(joint);const ring=mesh(new T.SphereGeometry(.058,16,10),mat(i%2?0xaaaaaa:0xbdbdbd));joint.add(ring);const arm=mesh(new T.CylinderGeometry(.033,.044,L,12),mat(0x777777));arm.rotation.x=Math.PI/2;arm.position.z=-L/2;joint.add(arm);const end=new T.Group();end.position.z=-L;joint.add(end);parent=end;});
-  parent.add(this.effector);const bulb=mesh(new T.SphereGeometry(.033,16,12),mat(gold,{emissive:gold,emissiveIntensity:2}));this.effector.add(bulb);const lightlabel=label('LIGHT','#cf8585');lightlabel.position.y=.13;this.effector.add(lightlabel);this.light=new T.PointLight(0xffffff,8,5,2);this.light.castShadow=true;this.light.shadow.mapSize.set(1024,1024);this.light.shadow.bias=-.002;this.effector.add(this.light);this.effector.add(new T.ArrowHelper(new T.Vector3(0,0,-1),new T.Vector3(),.18,gold,.04,.03));this.register(this.robot,{kind:'robot',id:'robot'});this.register(this.effector,{kind:'light',id:'light'});
-  const head=mesh(new T.SphereGeometry(.065,16,12),mat(0x7899c5));this.listener.add(head);this.listener.add(new T.ArrowHelper(new T.Vector3(0,0,-1),new T.Vector3(),.23,lavender,.05,.03));const ll=label('LISTENER','#97aed0');ll.position.y=.17;this.listener.add(ll);this.register(this.listener,{kind:'listener',id:'listener'});
-  this.target.add(mesh(new T.OctahedronGeometry(.045),new T.MeshBasicMaterial({color:gold,wireframe:true})));const tl=label('TARGET','#cf8585');tl.position.y=.13;this.target.add(tl);this.register(this.target,{kind:'target',id:'target'});
-  this.ray=new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(),new T.Vector3()]),new T.LineBasicMaterial({color:gold,transparent:true,opacity:.65}));this.scene.add(this.ray);
-  this.shadowVector=new T.ArrowHelper(new T.Vector3(0,0,1),new T.Vector3(-.45,.02,0),.6,lavender,.08,.035);this.scene.add(this.shadowVector);
-  this.shadowFoot=mesh(new T.CircleGeometry(1,48),new T.MeshBasicMaterial({color:lavender,transparent:true,opacity:.10,side:T.DoubleSide,depthWrite:false}));this.shadowFoot.rotation.x=-Math.PI/2;this.scene.add(this.shadowFoot);
-  this.path=new T.Line(new T.BufferGeometry(),new T.LineBasicMaterial({color:gold,transparent:true,opacity:.25}));this.scene.add(this.path);
-  host.addEventListener('pointerdown',e=>{this.start=[e.clientX,e.clientY];});host.addEventListener('pointerup',e=>{if(Math.hypot(e.clientX-this.start[0],e.clientY-this.start[1])<4&&!this.transform.dragging)this.pick(e);});
-  new ResizeObserver(()=>this.resize()).observe(host);this.store.subscribe(s=>this.update(s));this.update(store.state);this.view('PERSPECTIVE');this.resize();
+ renderer: T.WebGLRenderer;
+ scene = new T.Scene(); camera = new T.PerspectiveCamera(45, 1, .02, 150); controls: OrbitControls; transform: TransformControls;
+ selected: Selection = { kind: 'stone', id: 'stone' }; editMode = false;
+ private objects = new Map<string, T.Object3D>(); private speakerObjects: T.Group[] = []; private sourceObjects: T.Group[] = [];
+ private room = new T.Group(); private robot = new T.Group(); private suspension = new T.Group(); private joints: T.Group[] = [];
+ private effector = new T.Group(); private listener = new T.Group(); private target = new T.Group();
+ private sculpture = new T.Group(); private stone: T.Mesh; private shell = new T.Group(); private light: T.SpotLight;
+ private ray: T.Line; private path: T.Line;
+ private roomSignature = ''; private sculptureSignature = ''; private speakerSignature = ''; private suspensionSignature = '';
+ private raycaster = new T.Raycaster(); private start = [0, 0]; private disposed = false;
+
+ constructor(private host: HTMLElement, private store: Store, private select: () => void) {
+  this.renderer = new T.WebGLRenderer({ antialias: true, alpha: false }); this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = T.PCFSoftShadowMap;
+  this.renderer.outputColorSpace = T.SRGBColorSpace; this.renderer.toneMapping = T.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.2;
+  host.append(this.renderer.domElement); this.scene.background = new T.Color(0x12151c);
+  this.scene.add(new T.HemisphereLight(0xdfebff, 0x171821, 2.0));
+  const fill = new T.DirectionalLight(0xe4e8ee, 2.3); fill.position.set(1, 7, 3); this.scene.add(fill);
+  this.controls = new OrbitControls(this.camera, this.renderer.domElement); this.controls.enableDamping = true; this.controls.minDistance = .3;
+  this.controls.maxPolarAngle = Math.PI * .495;
+  this.transform = new TransformControls(this.camera, this.renderer.domElement); this.transform.setSize(.8); this.transform.setTranslationSnap(.01);
+  this.scene.add(this.transform.getHelper()); this.transform.addEventListener('dragging-changed', e => { this.controls.enabled = !e.value; });
+  this.transform.addEventListener('objectChange', () => this.drag());
+  this.scene.add(this.room, this.robot, this.suspension, this.listener, this.target, this.sculpture);
+
+  // A normalised irregular proxy: the PDF specifies Asama stone, not a scan.
+  const g = new T.IcosahedronGeometry(1, 2), position = g.attributes.position;
+  for (let i = 0; i < position.count; i++) {
+   const v = new T.Vector3().fromBufferAttribute(position, i);
+   v.multiplyScalar(.88 + .16 * Math.sin(v.x * 9 + v.y * 13) * Math.cos(v.z * 11)); position.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeBoundingBox(); const bounds = g.boundingBox!, size = bounds.getSize(new T.Vector3());
+  g.translate(...bounds.getCenter(new T.Vector3()).multiplyScalar(-1).toArray()); g.scale(1 / size.x, 1 / size.y, 1 / size.z); g.computeVertexNormals();
+  this.stone = mesh(g, mat(0x68696d, { flatShading: true, roughness: 1 }));
+  this.scene.add(this.stone); this.register(this.stone, { kind: 'stone', id: 'stone' });
+  this.sculpture.add(this.shell); this.register(this.shell, { kind: 'shell', id: 'shell' });
+
+  let parent = this.robot;
+  lengths.forEach((length, i) => {
+   const joint = new T.Group(); parent.add(joint); this.joints.push(joint);
+   joint.add(mesh(new T.SphereGeometry(.058, 16, 10), mat(i % 2 ? 0xaaaaaa : 0xbdbdbd)));
+   const arm = mesh(new T.CylinderGeometry(.033, .044, length, 12), mat(0x777d88)); arm.rotation.x = Math.PI / 2; arm.position.z = -length / 2; joint.add(arm);
+   const end = new T.Group(); end.position.z = -length; joint.add(end); parent = end;
+  });
+  parent.add(this.effector);
+  const fixture = mesh(new T.CylinderGeometry(.036, .055, .10, 24), mat(0x252832)); fixture.rotation.x = Math.PI / 2;
+  const bulb = mesh(new T.CircleGeometry(.032, 24), mat(gold, { emissive: gold, emissiveIntensity: 2 })); bulb.position.z = -.052; bulb.rotation.y = Math.PI;
+  this.effector.add(fixture, bulb); const lightLabel = label('LIGHT', '#e1ac83', .48); lightLabel.position.set(.16, .13, 0); this.effector.add(lightLabel);
+  this.light = new T.SpotLight(0xffeedf, 40, 20, Math.PI / 4, .2, 2); this.light.castShadow = true;
+  this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.bias = -.0004; this.light.shadow.normalBias = .012;
+  this.light.target = this.stone; this.effector.add(this.light);
+  this.register(this.robot, { kind: 'robot', id: 'robot' }); this.register(this.effector, { kind: 'light', id: 'light' });
+
+  this.listener.add(mesh(new T.SphereGeometry(.085, 16, 12), mat(lavender)));
+  this.listener.children[0].castShadow = false;
+  this.listener.add(new T.ArrowHelper(new T.Vector3(0, 0, -1), new T.Vector3(), .35, lavender, .075, .045));
+  const listenerLabel = label('LISTENER', '#b3c2ec', .68); listenerLabel.position.y = .25; this.listener.add(listenerLabel);
+  this.register(this.listener, { kind: 'listener', id: 'listener' });
+  this.target.add(mesh(new T.OctahedronGeometry(.065), new T.MeshBasicMaterial({ color: gold, wireframe: true })));
+  this.target.children[0].castShadow = false;
+  const targetLabel = label('TARGET', '#e1ac83', .55); targetLabel.position.y = .17; this.target.add(targetLabel); this.register(this.target, { kind: 'target', id: 'target' });
+  this.ray = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(), new T.Vector3()]), new T.LineDashedMaterial({ color: gold, transparent: true, opacity: .4, dashSize: .035, gapSize: .035 }));
+  this.scene.add(this.ray);
+  this.path = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({ color: gold, transparent: true, opacity: .3 })); this.scene.add(this.path);
+  host.addEventListener('pointerdown', e => { this.start = [e.clientX, e.clientY]; });
+  host.addEventListener('pointerup', e => { if (Math.hypot(e.clientX - this.start[0], e.clientY - this.start[1]) < 4 && !this.transform.dragging) this.pick(e); });
+  new ResizeObserver(() => this.resize()).observe(host); this.store.subscribe(s => this.update(s)); this.update(store.state); this.resize(); this.view('PERSPECTIVE');
  }
- private shellGeometry(){const vertices:number[]=[],indices:number[]=[];const cross:Vec3[]=[[-.95,0,0],[-.95,.319,0]];for(let i=1;i<=32;i++){const a=Math.PI-i*Math.PI/32;cross.push([.95*Math.cos(a),.319+.396*Math.sin(a),0]);}cross.push([.95,0,0]);
-  for(const z of [-.25,.25])for(const [x,y]of cross)vertices.push(x,y,z);const n=cross.length;for(let i=0;i<n-1;i++)indices.push(i,i+1,i+n,i+1,i+n+1,i+n);const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(vertices,3));g.setIndex(indices);g.computeVertexNormals();return g;}
- private register(o:T.Object3D,s:Selection){o.userData.selection=s;this.objects.set(s.kind+':'+s.id,o);}
- private roomBuild(s:SceneState){const sig=JSON.stringify(s.room);if(sig===this.roomSignature)return;this.roomSignature=sig;this.room.traverse(o=>{if(o instanceof T.Mesh||o instanceof T.LineSegments){o.geometry.dispose();(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());}});this.room.clear();
-  const {width:w,depth:d,height:h,partition:p}=s.room;const floor=mesh(new T.PlaneGeometry(w,d),mat(0x353535));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;this.room.add(floor);
-  const grid=new T.GridHelper(Math.max(w,d),Math.round(Math.max(w,d)*5),0x626262,0x404040);grid.position.y=.004;this.room.add(grid);
-  const outline=new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(w,h,d)),new T.LineBasicMaterial({color:0x555555,transparent:true,opacity:.7}));outline.position.y=h/2;this.room.add(outline);
-  const wallMat=mat(0x393939,{transparent:true,opacity:.16,side:T.DoubleSide,depthWrite:false});
-  for(const z of [-d/2,d/2]){const wall=mesh(new T.PlaneGeometry(w,h),wallMat.clone());wall.position.set(0,h/2,z);wall.castShadow=false;this.room.add(wall);}
-  const wall=mesh(new T.PlaneGeometry(d,h),wallMat);wall.rotation.y=Math.PI/2;wall.position.set(p,h/2,0);wall.castShadow=false;this.room.add(wall);
-  const door=label('FRONT / ENTRANCE');door.position.set(-.45,.04,-d/2-.15);door.scale.set(.85,.21,1);this.room.add(door);const bay=label('SERVICE / DISPLAY');bay.position.set((w/2+p)/2,.09,0);bay.scale.set(.65,.16,1);this.room.add(bay);
+ private register(o: T.Object3D, selection: Selection) { o.userData.selection = selection; this.objects.set(selection.kind + ':' + selection.id, o); }
+
+ private roomBuild(s: SceneState) {
+  const sig = JSON.stringify(s.room); if (sig === this.roomSignature) return; this.roomSignature = sig; dispose(this.room); this.room.clear();
+  const { width: w, depth: d, height: h, wallHeight: wh, corridorDepth: corridor, entranceWidth: entrance } = s.room;
+  const floor = mesh(new T.PlaneGeometry(w + corridor, d), mat(0x202329, { roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.position.x = -corridor / 2; floor.receiveShadow = true; this.room.add(floor);
+  const gridPoints: T.Vector3[] = [];
+  for (let x = Math.ceil(-w / 2); x <= w / 2; x++) gridPoints.push(new T.Vector3(x, .003, -d / 2), new T.Vector3(x, .003, d / 2));
+  for (let z = Math.ceil(-d / 2); z <= d / 2; z++) gridPoints.push(new T.Vector3(-w / 2, .003, z), new T.Vector3(w / 2, .003, z));
+  this.room.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(gridPoints), new T.LineBasicMaterial({ color: 0x3f4655, transparent: true, opacity: .34 })));
+  const outline = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(w, h, d)), new T.LineBasicMaterial({ color: 0x596275, transparent: true, opacity: .48 })); outline.position.y = h / 2; this.room.add(outline);
+  // Inward-facing wall surfaces create a camera-dependent cutaway, with the complete boundary retained as wireframe.
+  const wall = (width: number, x: number, z: number, rotation: number) => {
+   const o = mesh(new T.PlaneGeometry(width, wh), mat(0x242932, { side: T.FrontSide, roughness: 1 })); o.position.set(x, wh / 2, z); o.rotation.y = rotation; o.castShadow = false; this.room.add(o);
+  };
+  wall(w, 0, d / 2, Math.PI); wall(w, 0, -d / 2, 0); wall(d, w / 2, 0, -Math.PI / 2);
+  const leftSegment = (d - entrance) / 2;
+  wall(leftSegment, -w / 2, -(entrance / 2 + leftSegment / 2), Math.PI / 2); wall(leftSegment, -w / 2, entrance / 2 + leftSegment / 2, Math.PI / 2);
+  if (corridor > 0) {
+   wall(d, -w / 2 - corridor, 0, Math.PI / 2);
+   const corridorEdge = new T.LineSegments(new T.BufferGeometry().setFromPoints([
+    new T.Vector3(-w / 2, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, d / 2),
+    new T.Vector3(-w / 2 - corridor, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, -d / 2),
+   ]), new T.LineBasicMaterial({ color: 0x596275 })); this.room.add(corridorEdge);
+   const entry = label('LIGHT LOCK', '#a5afc4', 1.6); entry.position.set(-w / 2 - corridor / 2, .07, 0); this.room.add(entry);
+  }
+  dimension(this.room, new T.Vector3(-w / 2, .03, d / 2 + .34), new T.Vector3(w / 2, .03, d / 2 + .34), `${w.toFixed(2)} m`, new T.Vector3(0, .08, .12));
+  dimension(this.room, new T.Vector3(w / 2 + .34, .03, -d / 2), new T.Vector3(w / 2 + .34, .03, d / 2), `${d.toFixed(2)} m`, new T.Vector3(.15, .08, 0));
+  dimension(this.room, new T.Vector3(w / 2 + .25, 0, d / 2), new T.Vector3(w / 2 + .25, h, d / 2), `${h.toFixed(2)} m`, new T.Vector3(.12, 0, 0));
+  this.controls.maxDistance = Math.max(w + corridor, d, h) * 5; this.camera.far = this.controls.maxDistance * 4; this.camera.updateProjectionMatrix();
  }
- update(s:SceneState){this.roomBuild(s);this.robot.position.set(...toThree(basePosition(s)));this.joints.forEach((joint,i)=>joint.quaternion.setFromAxisAngle(axes[i],s.robot.joints[i]*Math.PI/180));this.light.intensity=s.light.intensity*10;this.target.position.set(...toThree(s.robot.target));this.target.visible=s.robot.control==='target';this.listener.position.set(...toThree(s.listener.position));this.listener.rotation.y=-s.listener.yaw*Math.PI/180;
-  if(this.speakerObjects.length===0)s.speakers.forEach(sp=>{const group=new T.Group();const cabinet=mesh(new T.BoxGeometry(sp.id==='SUB1'?.2:.1,sp.id==='SUB1'?.25:.16,.1),mat(0x292929));const groupColor=sp.id.startsWith('F')?0xb96e6e:sp.id.startsWith('W')?0x77a589:sp.id.startsWith('C')?0x7899c5:0xaaaaaa;const face=mesh(new T.CircleGeometry(.028,16),mat(groupColor));face.position.z=-.052;face.rotation.y=Math.PI;group.add(cabinet,face);const l=label(sp.id);l.position.y=.15;group.add(l);this.scene.add(group);this.speakerObjects.push(group);this.register(group,{kind:'speaker',id:sp.id});});
-  this.speakerObjects.forEach((g,i)=>{g.position.set(...toThree(s.speakers[i].position));g.lookAt(...toThree(s.listener.position));g.rotateY(Math.PI);const mesh=g.children[0] as T.Mesh;const m=mesh.material as T.MeshStandardMaterial;m.emissive.setHex(this.selected.kind==='speaker'&&this.selected.id===s.speakers[i].id?0xffffff:(s.monitoring==='virtualspeakers'&&i<12?0x333333:0));m.emissiveIntensity=1;});
-  while(this.sourceObjects.length>s.sources.length){const o=this.sourceObjects.pop()!;if(this.transform.object===o)this.transform.detach();this.scene.remove(o);o.traverse(v=>{if(v instanceof T.Mesh||v instanceof T.Sprite){if(v instanceof T.Mesh)v.geometry.dispose();for(const m of Array.isArray(v.material)?v.material:[v.material]){if(m instanceof T.SpriteMaterial)m.map?.dispose();m.dispose();}}});this.objects.delete('source:'+(this.sourceObjects.length+1));}
-  while(this.sourceObjects.length<s.sources.length){const i=this.sourceObjects.length,group=new T.Group(),c=[0xb96e6e,0x77a589,0x7899c5,0xbdbdbd][i%4];group.add(mesh(new T.SphereGeometry(.037,16,12),mat(c,{emissive:c,emissiveIntensity:.5})));group.add(new T.Mesh(new T.SphereGeometry(1,20,12),new T.MeshBasicMaterial({color:c,wireframe:true,transparent:true,opacity:.13})));const l=label('S'+(i+1),'#'+c.toString(16).padStart(6,'0'));l.position.y=.13;group.add(l);this.sourceObjects.push(group);this.scene.add(group);this.register(group,{kind:'source',id:String(i+1)});}
-  this.sourceObjects.forEach((g,i)=>{g.position.set(...toThree(s.sources[i].position));g.children[1].scale.setScalar(.045+s.sources[i].spread*.0028);const m=(g.children[0] as T.Mesh).material as T.MeshStandardMaterial;m.emissiveIntensity=this.selected.kind==='source'&&this.selected.id===String(i+1)?1.8:.5;});
-  const light=new T.Vector3(...toThree(s.light.position)),stone=new T.Vector3(-.45,.16,0),attr=this.ray.geometry.attributes.position as T.BufferAttribute;attr.setXYZ(0,light.x,light.y,light.z);attr.setXYZ(1,stone.x,stone.y,stone.z);attr.needsUpdate=true;
-  const shadow=stone.clone().sub(light);shadow.y=0;if(shadow.lengthSq()<1e-5)shadow.set(0,0,1);shadow.normalize();this.shadowVector.setDirection(shadow);this.shadowVector.setLength(.3+s.shadow.area*.8,.07,.03);this.shadowFoot.position.copy(stone).addScaledVector(shadow,.3);this.shadowFoot.position.y=.006;this.shadowFoot.rotation.z=Math.atan2(-shadow.z,shadow.x);this.shadowFoot.scale.set(.16+s.shadow.area*.3,.13+s.shadow.penumbra*.2,1);
-  if(!this.transform.dragging)this.attach();
+
+ private sculptureBuild(s: SceneState) {
+  const sig = JSON.stringify(s.acrylic); if (sig === this.sculptureSignature) return; this.sculptureSignature = sig;
+  dispose(this.shell); this.shell.clear(); const { bottom, top } = acrylicPlan(s.acrylic);
+  const geometry = acrylicPanels(bottom, top, s.acrylic.thickness);
+  const acrylic = mesh(geometry, mat(0xd4e9ef, { transparent: true, opacity: .075, side: T.DoubleSide, depthWrite: false, roughness: .12, metalness: .04 })); acrylic.castShadow = false;
+  this.shell.add(acrylic, new T.LineSegments(new T.EdgesGeometry(geometry, 20), new T.LineBasicMaterial({ color: 0xc0dce3, transparent: true, opacity: .85 })));
+  const inset = mesh(new T.ShapeGeometry(shapeFromPlan(bottom)), mat(0xd6d9db, { roughness: 1, side: T.DoubleSide }));
+  inset.rotation.x = -Math.PI / 2; inset.position.y = .005; inset.receiveShadow = true; inset.castShadow = false; this.shell.add(inset);
+  this.shell.position.set(...toThree(s.acrylic.position)); this.shell.rotation.y = s.acrylic.yaw * Math.PI / 180;
+  const text = label(`ACRYLIC · ${s.acrylic.slope.toFixed(1)}°`, '#bdd6de', 1.0); text.position.set(0, .035, s.acrylic.depth / 2 + .25); this.shell.add(text);
  }
- setEditMode(enabled:boolean){this.editMode=enabled;if(!enabled)this.transform.detach();else this.attach();}
- setSelection(s:Selection){this.selected=s;this.effector.scale.setScalar(s.kind==='light'?1.35:1);this.attach();this.select();this.update(this.store.state);}
- private attach(){const s=this.store.state,sel=this.selected;const editable=sel.kind==='source'||sel.kind==='listener'||sel.kind==='target'||sel.kind==='light'||sel.kind==='speaker'&&!s.speakersLocked;const object=this.objects.get(sel.kind+':'+sel.id);if(this.editMode&&editable&&object&&sel.kind!=='light'){if(this.transform.object!==object)this.transform.attach(object);}else this.transform.detach();}
- private pick(e:PointerEvent){if(!this.editMode)return;const r=this.host.getBoundingClientRect();this.raycaster.setFromCamera(new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),this.camera);const hits=this.raycaster.intersectObjects([...this.objects.values()],true);for(const hit of hits){let o:T.Object3D|null=hit.object;while(o&&!o.userData.selection)o=o.parent;if(o){this.setSelection(o.userData.selection);break;}}}
- private drag(){const object=this.transform.object;if(!object)return;const v=fromThree(object.position.toArray() as Vec3).map(x=>clamp(x,-5,5)) as Vec3;this.store.change(s=>{switch(this.selected.kind){case 'source':{const src=s.sources.find(x=>String(x.id)===this.selected.id);if(src)src.position=v;s.mappings.centroid.enabled=false;s.mappings.density.enabled=false;s.mappings.rotation.enabled=false;s.mappings.lightDistance.enabled=false;break;}case 'speaker':if(!s.speakersLocked)s.speakers.find(x=>x.id===this.selected.id)!.position=v;break;case 'listener':s.listener.position=v;break;case 'target':s.robot.target=v;s.robot.control='target';s.motion.playing=false;break;}});}
- view(name:string){const s=this.store.state;this.controls.enabled=true;this.controls.target.set(-.35,.8,0);switch(name){case 'TOP':this.camera.position.set(-.35,5,.001);break;case 'FRONT':this.camera.position.set(-.35,1.3,-4);break;case 'SIDE':this.camera.position.set(4,1.3,0);break;case 'LISTENER':{const p=new T.Vector3(...toThree(s.listener.position));this.camera.position.copy(p);this.controls.target.copy(p).add(new T.Vector3(Math.sin(s.listener.yaw*Math.PI/180),0,-Math.cos(s.listener.yaw*Math.PI/180)));break;}default:this.camera.position.set(3.8,3.15,4.1);}this.camera.lookAt(this.controls.target);this.controls.update();}
- focus(){const o=this.objects.get(this.selected.kind+':'+this.selected.id);if(o){this.controls.target.copy(o.getWorldPosition(new T.Vector3()));this.controls.update();}}
- setPath(points:Vec3[]){this.path.geometry.dispose();this.path.geometry=new T.BufferGeometry().setFromPoints(points.map(p=>new T.Vector3(...toThree(p))));}
- resize(){const w=this.host.clientWidth,h=this.host.clientHeight;this.camera.aspect=w/Math.max(1,h);this.camera.updateProjectionMatrix();this.renderer.setSize(w,h);}
- render(){if(this.disposed)return;this.controls.update();this.renderer.render(this.scene,this.camera);}
+
+ private suspensionBuild(s: SceneState) {
+  const sig = JSON.stringify([s.robot.base, s.room.height]); if (sig === this.suspensionSignature) return; this.suspensionSignature = sig;
+  dispose(this.suspension); this.suspension.clear(); const [x, y, z] = toThree(basePosition(s)), top = s.room.height, length = Math.max(.01, top - y);
+  const support = mesh(new T.CylinderGeometry(.025, .025, length, 16), mat(0x858b97)); support.position.set(x, y + length / 2, z); this.suspension.add(support);
+  const plate = mesh(new T.BoxGeometry(.32, .035, .32), mat(0x343b48)); plate.position.set(x, top, z); this.suspension.add(plate);
+  const mount = mesh(new T.CylinderGeometry(.1, .1, .055, 24), mat(0x596373)); mount.position.set(x, y + .03, z); this.suspension.add(mount);
+ }
+
+ private speakerBuild(s: SceneState) {
+  const sig = JSON.stringify([s.speakerSetup, s.speakers.map(sp => [sp.id, sp.role, sp.wall])]); if (sig === this.speakerSignature) return; this.speakerSignature = sig;
+  this.speakerObjects.forEach(group => { if (this.transform.object === group) this.transform.detach(); this.scene.remove(group); dispose(group); });
+  for (const key of this.objects.keys()) if (key.startsWith('speaker:')) this.objects.delete(key); this.speakerObjects = [];
+  const setup = s.speakerSetup;
+  for (const sp of s.speakers) {
+   const colors: Record<Speaker['wall'], number> = { front: 0xb78ddd, rear: 0x79afbf, right: 0x9fc591, left: 0xcbab7d, arm: gold, floor: 0xa0adbd };
+   const group = new T.Group(), sub = sp.role === 'sub', color = colors[sp.wall];
+   if (sub) {
+    const cabinet = mesh(new T.BoxGeometry(setup.subWidth, setup.subHeight, setup.subDepth), mat(0x252931, { roughness: .85 })); group.add(cabinet);
+    const front = mesh(new T.PlaneGeometry(setup.subWidth * .79, setup.subHeight * .84), mat(0x10131a)); front.position.z = -setup.subDepth / 2 - .002; front.rotation.y = Math.PI; group.add(front);
+    const driver = mesh(new T.CircleGeometry(Math.min(setup.subWidth, setup.subHeight) * .28, 40), mat(0x454a56)); driver.position.z = -setup.subDepth / 2 - .004; driver.rotation.y = Math.PI; group.add(driver);
+    for (let i = -4; i <= 4; i++) { const grille = mesh(new T.BoxGeometry(.0025, setup.subHeight * .78, .004), mat(0x171b23)); grille.position.set(i * setup.subWidth * .075, 0, -setup.subDepth / 2 - .007); group.add(grille); }
+   } else {
+    // A configurable custom baffle with the PDF's circular ALPHA4-8 driver, not a generic miniature cabinet.
+    group.add(mesh(new T.BoxGeometry(setup.baffleWidth, setup.baffleHeight, setup.baffleDepth), mat(0x252932, { roughness: .8 })));
+    const frontZ = -setup.baffleDepth / 2, radius = setup.driverDiameter / 2;
+    const basket = mesh(new T.CylinderGeometry(radius * .84, radius * .49, setup.driverDepth, 32), mat(0x171a21)); basket.rotation.x = Math.PI / 2; basket.position.z = frontZ + setup.driverDepth / 2; group.add(basket);
+    const surround = mesh(new T.TorusGeometry(radius * .82, radius * .15, 12, 40), mat(0x11131b)); surround.position.z = frontZ - .003; group.add(surround);
+    const cone = mesh(new T.ConeGeometry(radius * .72, radius * .27, 40, 1, true), mat(0x3c424b, { side: T.DoubleSide })); cone.rotation.x = Math.PI / 2; cone.position.z = frontZ - radius * .02; group.add(cone);
+    const cap = mesh(new T.SphereGeometry(radius * .23, 20, 12), mat(0x242a34)); cap.scale.z = .35; cap.position.z = frontZ - radius * .12; group.add(cap);
+    const rim = new T.LineLoop(new T.BufferGeometry().setFromPoints(Array.from({ length: 64 }, (_, i) => new T.Vector3(radius * Math.cos(i * Math.PI / 32), radius * Math.sin(i * Math.PI / 32), frontZ - .012))), new T.LineBasicMaterial({ color })); group.add(rim);
+   }
+   const title = label(sp.id, '#' + color.toString(16).padStart(6, '0'), sub ? .55 : .48); title.position.y = (sub ? setup.subHeight : setup.baffleHeight) / 2 + .13; group.add(title);
+   this.scene.add(group); this.speakerObjects.push(group); this.register(group, { kind: 'speaker', id: sp.id });
+  }
+ }
+
+ update(s: SceneState) {
+  this.roomBuild(s); this.sculptureBuild(s); this.suspensionBuild(s); this.speakerBuild(s);
+  this.stone.scale.set(s.stone.width, s.stone.height, s.stone.depth); this.stone.position.set(...toThree(s.stone.position));
+  this.robot.position.set(...toThree(basePosition(s))); this.joints.forEach((joint, i) => joint.quaternion.setFromAxisAngle(axes[i], s.robot.joints[i] * Math.PI / 180));
+  this.light.intensity = s.light.intensity * 60; this.target.position.set(...toThree(s.robot.target)); this.target.visible = s.robot.control === 'target';
+  this.listener.position.set(...toThree(s.listener.position)); this.listener.rotation.y = -s.listener.yaw * Math.PI / 180;
+  this.speakerObjects.forEach((group, i) => {
+   const sp = s.speakers[i]; group.position.set(...toThree(sp.position));
+   const target = sp.role === 'arm' ? this.stone.position : new T.Vector3(0, sp.position[2], 0);
+   group.lookAt(target); group.rotateY(Math.PI);
+   const cabinet = group.children[0] as T.Mesh, material = cabinet.material as T.MeshStandardMaterial;
+   material.emissive.setHex(this.selected.kind === 'speaker' && this.selected.id === sp.id ? 0x53617e : s.monitoring === 'virtualspeakers' && sp.role !== 'sub' ? 0x182434 : 0); material.emissiveIntensity = 1;
+  });
+  while (this.sourceObjects.length > s.sources.length) {
+   const o = this.sourceObjects.pop()!; if (this.transform.object === o) this.transform.detach(); this.scene.remove(o); dispose(o); this.objects.delete('source:' + (this.sourceObjects.length + 1));
+  }
+  while (this.sourceObjects.length < s.sources.length) {
+   const i = this.sourceObjects.length, group = new T.Group(), color = [0xd6a18a, 0x8fbdad, 0x9daedd, 0xc2aacd][i % 4];
+   group.add(mesh(new T.SphereGeometry(.06, 16, 12), mat(color, { emissive: color, emissiveIntensity: .5 })));
+   group.children[0].castShadow = false;
+   group.add(new T.Mesh(new T.SphereGeometry(1, 20, 12), new T.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: .12 })));
+   const text = label('S' + (i + 1), '#' + color.toString(16).padStart(6, '0'), .45); text.position.y = .19; group.add(text);
+   this.sourceObjects.push(group); this.scene.add(group); this.register(group, { kind: 'source', id: String(i + 1) });
+  }
+  this.sourceObjects.forEach((group, i) => {
+   group.position.set(...toThree(s.sources[i].position)); group.children[1].scale.setScalar(.09 + s.sources[i].spread * .004);
+   const material = (group.children[0] as T.Mesh).material as T.MeshStandardMaterial; material.emissiveIntensity = this.selected.kind === 'source' && this.selected.id === String(i + 1) ? 1.8 : .5;
+  });
+  const light = new T.Vector3(...toThree(s.light.position)), attr = this.ray.geometry.attributes.position as T.BufferAttribute;
+  attr.setXYZ(0, light.x, light.y, light.z); attr.setXYZ(1, this.stone.position.x, this.stone.position.y, this.stone.position.z); attr.needsUpdate = true; this.ray.computeLineDistances();
+  if (!this.transform.dragging) this.attach();
+ }
+ setEditMode(enabled: boolean) { this.editMode = enabled; if (!enabled) this.transform.detach(); else this.attach(); }
+ setSelection(s: Selection) { this.selected = s; this.effector.scale.setScalar(s.kind === 'light' ? 1.2 : 1); this.attach(); this.select(); this.update(this.store.state); }
+ private attach() {
+  const s = this.store.state, selection = this.selected;
+  const speaker = selection.kind === 'speaker' ? s.speakers.find(sp => sp.id === selection.id) : undefined;
+  const editable = selection.kind === 'source' || selection.kind === 'listener' || selection.kind === 'target' || selection.kind === 'stone' || selection.kind === 'shell' || selection.kind === 'robot' || selection.kind === 'speaker' && !s.speakersLocked && speaker?.role !== 'arm';
+  const object = this.objects.get(selection.kind + ':' + selection.id);
+  if (this.editMode && editable && object) { if (this.transform.object !== object) this.transform.attach(object); } else this.transform.detach();
+ }
+ private pick(e: PointerEvent) {
+  const rect = this.host.getBoundingClientRect(); this.raycaster.setFromCamera(new T.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
+  const hits = this.raycaster.intersectObjects([...this.objects.values()], true);
+  // Acrylic is selectable, but its transparent faces must not swallow clicks on the stone or the sources inside.
+  hits.sort((a, b) => Number(this.isShell(a.object)) - Number(this.isShell(b.object)) || a.distance - b.distance);
+  for (const hit of hits) { let o: T.Object3D | null = hit.object; while (o && !o.userData.selection) o = o.parent; if (o) { this.setSelection(o.userData.selection); break; } }
+ }
+ private isShell(o: T.Object3D) { let p: T.Object3D | null = o; while (p) { if (p === this.shell) return true; p = p.parent; } return false; }
+ private drag() {
+  const object = this.transform.object; if (!object) return;
+  const value = fromThree(object.position.toArray() as Vec3), room = this.store.state.room;
+  const v: Vec3 = [clamp(value[0], -room.width / 2, room.width / 2), clamp(value[1], -room.depth / 2, room.depth / 2), clamp(value[2], 0, room.height)];
+  this.store.change(s => {
+   switch (this.selected.kind) {
+    case 'source': { const source = s.sources.find(x => String(x.id) === this.selected.id); if (source) source.position = v; s.mappings.centroid.enabled = false; s.mappings.density.enabled = false; s.mappings.rotation.enabled = false; s.mappings.lightDistance.enabled = false; break; }
+    case 'speaker': if (!s.speakersLocked) { const speaker = s.speakers.find(x => x.id === this.selected.id); if (speaker && speaker.role !== 'arm') speaker.position = v; } break;
+    case 'listener': s.listener.position = v; break;
+    case 'target': s.robot.target = v; s.robot.control = 'target'; s.motion.playing = false; break;
+    case 'stone': s.stone.position = [v[0], v[1], Math.max(s.stone.height / 2, v[2])]; break;
+    case 'shell': s.acrylic.position = v; break;
+    case 'robot': s.robot.base = v; s.motion.playing = false; break;
+   }
+  });
+ }
+ view(name: string) {
+  const s = this.store.state, { width: w, depth: d, height: h, corridorDepth: corridor } = s.room;
+  const span = Math.max(w + corridor, d, h), aspectFit = Math.max(1, 1 / this.camera.aspect);
+  const fit = span / (2 * Math.tan(T.MathUtils.degToRad(this.camera.fov / 2))) * 1.2 * aspectFit;
+  this.controls.enabled = true; this.controls.target.set(-corridor * .25, Math.min(h * .28, 2), 0);
+  switch (name) {
+   case 'TOP': this.controls.target.set(-corridor / 2, 0, 0); this.camera.position.set(-corridor / 2, fit * 1.1, -.001); break;
+   case 'FRONT': this.controls.target.set(0, h * .45, 0); this.camera.position.set(0, h * .45, -fit - d * .15); break;
+   case 'SIDE': this.controls.target.set(0, h * .45, 0); this.camera.position.set(fit + w * .15, h * .45, 0); break;
+   case 'LISTENER': {
+    const p = new T.Vector3(...toThree(s.listener.position)); this.camera.position.copy(p);
+    this.controls.target.copy(p).add(new T.Vector3(Math.sin(s.listener.yaw * Math.PI / 180), 0, -Math.cos(s.listener.yaw * Math.PI / 180))); break;
+   }
+   default: this.camera.position.set(-span * 1.2 * aspectFit, span * .98 * aspectFit, -span * 1.25 * aspectFit);
+  }
+  this.camera.lookAt(this.controls.target); this.controls.update();
+ }
+ focus() {
+  const object = this.objects.get(this.selected.kind + ':' + this.selected.id);
+  if (object) {
+   const target = object.getWorldPosition(new T.Vector3()), direction = this.camera.position.clone().sub(this.controls.target).normalize();
+   const distance = this.selected.kind === 'shell' ? Math.max(this.store.state.acrylic.bottomFrontWidth, this.store.state.acrylic.depth) * 1.8 : this.selected.kind === 'robot' ? 2.8 : 1.5;
+   this.controls.target.copy(target); this.camera.position.copy(target).addScaledVector(direction, distance); this.controls.update();
+  }
+ }
+ setPath(points: Vec3[]) { this.path.geometry.dispose(); this.path.geometry = new T.BufferGeometry().setFromPoints(points.map(p => new T.Vector3(...toThree(p)))); }
+ resize() { const width = this.host.clientWidth, height = this.host.clientHeight; this.camera.aspect = width / Math.max(1, height); this.camera.updateProjectionMatrix(); this.renderer.setSize(width, height); }
+ render() {
+  if (this.disposed) return; this.controls.update();
+  const unitsPerPixel = 2 * Math.tan(T.MathUtils.degToRad(this.camera.fov / 2)) / Math.max(1, this.host.clientHeight);
+  this.scene.traverse(object => {
+   if (object instanceof T.Sprite && object.userData.labelAspect) {
+    const distance = this.camera.position.distanceTo(object.getWorldPosition(new T.Vector3()));
+    const height = distance * unitsPerPixel * object.userData.labelPixels * 72 / 38;
+    object.scale.set(height * object.userData.labelAspect, height, 1);
+   }
+  });
+  this.renderer.render(this.scene, this.camera);
+ }
 }

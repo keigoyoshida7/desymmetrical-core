@@ -3,7 +3,9 @@ autowatch=1;inlets=3;outlets=7;
 // IN: 0 UDP decoded, 1 native oper state, 2 local engine/UI.
 // OUT: 0 oper, 1 virtual coordinates, 2 UDP, 3 A/B mix, 4 engine, 5 viewer, 6 ports.
 var values={},guard=0,requesting=0,monitor='direct',active=4,selected=1;
-var speakers=[-1.14,.58,1.18,.94,.58,1.18,-1.14,.58,-.85,.94,.58,-.85,1.02,-.88,1.18,1.02,.58,1.18,1.02,-.88,-.85,1.02,.58,-.85,-.94,-.70,1.32,.74,-.70,1.32,-.94,.40,1.32,.74,.40,1.32];
+// Core CH1–CH17; listener-relative XYZ. SUB1 stays metadata.
+var speakerCount=17;
+var speakers=[1.75,5.34,-0.4,-1.75,5.34,-0.4,1.75,5.34,2.6,-1.75,5.34,2.6,1.75,-1.34,-0.4,-1.75,-1.34,-0.4,1.75,-1.34,2.6,-1.75,-1.34,2.6,-3.34,3.75,-0.4,-3.34,0.25,-0.4,-3.34,3.75,2.6,-3.34,0.25,2.6,3.34,3.75,-0.4,3.34,0.25,-0.4,3.34,3.75,2.6,3.34,0.25,2.6,-0.1,2,-0.64];
 function emit(n,p,a){outlet(n,[p].concat(a||[]));}
 function ui(k,v){var b=this.patcher.getnamed(k);if(b)b.message('set',v);}
 function remember(p,a,force){var signature=a.join('|'),old=values[p];values[p]=a.slice(0);if(force||!old||old.join('|')!==signature)emit(2,p,a);}
@@ -13,7 +15,7 @@ function init(){
  var c={maxReceivePort:9000,maxSendPort:9001};
  try{var path=this.patcher.filepath.replace(/[^/]*$/,'')+'webgl/bridge/config.json';var f=new File(path,'read');if(f.isopen){var raw='';while(f.position<f.eof)raw+=f.readline();f.close();c=JSON.parse(raw);}}catch(e){post('Dot Area: config fallback 9000/9001: '+e+'\n');}
  emit(6,'receive',[c.maxReceivePort]);emit(6,'send',[c.maxSendPort]);ui('receiveport',c.maxReceivePort);ui('sendport',c.maxSendPort);
- emit(5,'/speaker/number',[12]);apply('/speakers/xyz',speakers,2);setcount(4);status();
+ emit(5,'/speaker/number',[speakerCount]);apply('/speakers/xyz',speakers,2);setcount(4);status();
 }
 function status(){remember('/dotarea/status',['ready'],true);remember('/dotarea/monitoring/mode',[monitor],true);remember('/dotarea/source/count',[active],true);remember('/dotarea/capabilities/sources',[4],true);remember('/dotarea/source/selected',[selected],true);}
 function setcount(n){active=Math.max(1,Math.min(4,Math.round(n)));emit(4,'webcount',[active]);for(var i=1;i<=4;i++){tooper('/source/'+i+'/mute',[i>active?1:0]);emit(5,'/source/'+i+'/visible',[i<=active?1:0]);}remember('/dotarea/source/count',[active],true);}
@@ -32,7 +34,8 @@ function apply(p,a,origin){
   remember(p,a,false);return;
  }
  if(p==='/speakers/xyz'||sp){
-  if(p==='/speakers/xyz'){if(a.length!==36)return;speakers=a.slice(0);}else{var index=Number(sp[1])-1;if(index<0||index>=12||a.length!==3)return;for(var k=0;k<3;k++)speakers[index*3+k]=a[k];}
+  for(var n=0;n<a.length;n++)if(typeof a[n]!=='number'||!isFinite(a[n]))return;
+  if(p==='/speakers/xyz'){if(a.length!==speakerCount*3)return;speakers=a.slice(0);}else{var index=Number(sp[1])-1;if(index<0||index>=speakerCount||a.length!==3)return;for(var k=0;k<3;k++)speakers[index*3+k]=a[k];}
   if(origin!==1)tooper(p,a);emit(1,'/speakers/xyz',speakers);emit(5,'/speakers/xyz',speakers);remember('/speakers/xyz',speakers,false);return;
  }
  if(p==='/dotarea/state/request'){requesting++;outlet(0,'bang');requesting--;for(var key in values)if(key!=='/dotarea/motion/stop')emit(2,key,values[key]);status();return;}

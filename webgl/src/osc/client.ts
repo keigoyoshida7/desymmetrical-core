@@ -28,7 +28,7 @@ export class OscClient {
      if(this.adapter.receive(this.store.state,m)){
       // Recompute derived controls only for actual installation edits, never echoed snapshots.
       if(m.address.startsWith('/dotarea/shadow/')||m.address===paths.intensity){applyMappings(this.store.state);this.dirty=true;}
-      if(m.address===paths.listener||m.address===paths.yaw)this.dirty=true;
+      if(m.address===paths.listener||m.address===paths.yaw||this.adapter.armCorrectionPending)this.dirty=true;
       this.store.change(()=>{},'osc');
      }
    }this.notify();}

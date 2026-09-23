@@ -2,7 +2,7 @@ import {Matrix4,Quaternion,Vector3} from 'three';
 import {clamp,fromThree,toThree,type SceneState,type Vec3} from './model';
 export const lengths=[.16,.43,.39,.16,.12,.09];
 export const axes=[new Vector3(0,1,0),new Vector3(1,0,0),new Vector3(1,0,0),new Vector3(0,0,1),new Vector3(1,0,0),new Vector3(0,0,1)];
-export const basePosition=(s:SceneState):Vec3=>[-.45,-s.room.depth/2+.07,1.3];
+export const basePosition=(s:SceneState):Vec3=>s.robot.base;
 export function forward(s:SceneState,joints=s.robot.joints){
  const matrix=new Matrix4().makeTranslation(...toThree(basePosition(s)));const points=[new Vector3().setFromMatrixPosition(matrix)];const matrices:Matrix4[]=[];
  joints.forEach((j,i)=>{matrix.multiply(new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromAxisAngle(axes[i],j*Math.PI/180)));matrices.push(matrix.clone());matrix.multiply(new Matrix4().makeTranslation(0,0,-lengths[i]));points.push(new Vector3().setFromMatrixPosition(matrix));});

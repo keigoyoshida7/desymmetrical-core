@@ -10,6 +10,9 @@ function label(id,text,r){return box(p,id,text,r,1,0,{maxclass:'comment',fontsiz
 function ui(id,cls,r,extra={}){return box(p,id,undefined,r,1,1,{maxclass:cls,presentation:1,presentation_rect:r,varname:id,...extra});}
 if(!find(p,'networkctl'))for(const {box:b} of p.boxes)if(!b.presentation&&b.patching_rect[1]>=1260)b.patching_rect[1]+=500;
 p.rect[2]=1480;p.rect[3]=1430;
+find(p,'title').text='De-symmetrical Core';
+find(p,'subtitle').text='17-FEED SPATIAL AUDIO EXPLORER';
+find(p,'strap').text='Core: Keigo Yoshida · Original software: Guillaume Piccarreta · github.com/gllmp';
 find(p,'gain').maximum=1;find(p,'lgain').text='MASTER 0–1 / UNITY';find(p,'frequency').minimum=20;find(p,'frequency').maximum=12000;
 find(p,'h4').text='04  SPAT / HEADPHONE MONITORING';
 find(p,'lroom').patching_rect[3]=19;find(p,'lroom').presentation_rect[3]=19;
@@ -35,7 +38,7 @@ find(audio,'in10').index=7;find(audio,'in11').index=8;find(audio,'l11').text='ma
 for(const id of ['direct','multi']){const b=find(audio,id);b.text=b.text.replace('@inputs 8','@inputs 4');b.numinlets=4;}
 for(const id of ['clip0','clip1'])find(audio,id).text='clip~ -0.95 0.95';
 Object.assign(find(p,'audio'),{text:'p HEADPHONE_A_B',patcher:audio,numinlets:8,numoutlets:2});
-find(p,'oper').text='spat5.oper @internals 8 @initwith "/source/number 4, /room/number 1, /speaker/number 12, /listener/editable 0, /listener/headphones/visible 1, /source/*/radius 0.2, /source/*/doppler 0"';
+find(p,'oper').text='spat5.oper @internals 8 @initwith "/source/number 4, /room/number 1, /speaker/number 17, /listener/editable 0, /listener/headphones/visible 1, /source/*/radius 0.2, /source/*/doppler 0"';
 p.lines=p.lines.filter(v=>!(v.patchline.source[0]==='engine'&&['oper','audio'].includes(v.patchline.destination[0]))&&!(v.patchline.source[0]==='synthesis'&&v.patchline.destination[0]==='audio'));
 wire(p,'engine','networkctl',0,2);wire(p,'engine','audio',3,7);for(let i=0;i<4;i++)wire(p,'synthesis','audio',i,i+2);
 // New lower presentation band, without moving or replacing existing UI.
@@ -55,7 +58,7 @@ label('rxlabel','MAX RECEIVE UDP',[930,1278,130,24]);ui('receiveport','number',[
 label('txlabel','MAX SEND UDP',[1170,1278,140,24]);ui('sendport','number',[1320,1278,130,27],{numoutlets:2,minimum:1024,maximum:65535});
 label('osc_status','OSC waiting · start the WebGL bridge once',[24,1350,1010,24]);label('selectedlabel','SELECT SOURCE',[1080,1348,180,24]);ui('selected','number',[1280,1348,120,27],{numoutlets:2,minimum:1,maximum:4});
 label('network_hint','Config: webgl/bridge/config.json · one Max receiver only · 4 active identities maximum · no browser audio enable',[24,1390,1410,24]);
-const paths=[];for(let i=1;i<=4;i++)for(const k of ['xyz','dist','spread','prer','env','select'])paths.push('/source/'+i+'/'+k);for(let i=1;i<=12;i++)paths.push('/speaker/'+i+'/xyz');paths.push('/sources/xyz','/speakers/xyz');
+const paths=[];for(let i=1;i<=4;i++)for(const k of ['xyz','dist','spread','prer','env','select'])paths.push('/source/'+i+'/'+k);for(let i=1;i<=17;i++)paths.push('/speaker/'+i+'/xyz');paths.push('/sources/xyz','/speakers/xyz');
 const custom=['source/count','source/selected','monitoring/mode','state/request','listener/xyz','listener/yaw','light/xyz','light/target/xyz','light/intensity','subwoofer/xyz',...Array.from({length:6},(_,i)=>'robot/j'+(i+1)),...['centroid','area','penumbra','density','entropy'].map(k=>'shadow/'+k),...['play','stop','speed','preset'].map(k=>'motion/'+k)].map(k=>'/dotarea/'+k);
 function router(paths){const r={fileversion:1,classnamespace:'box',rect:[50,70,1460,Math.ceil(paths.length/4)*130+220],boxes:[],lines:[]};box(r,'in','inlet',[24,30,70,24],0,1,{index:1});for(let i=0;i<paths.length;i+=4){const group=paths.slice(i,i+4),y=100+Math.floor(i/4)*130;box(r,'route'+i,'spat5.osc.route '+group.join(' '),[24,y,1390,24],1,group.length+1);wire(r,'in','route'+i);group.forEach((path,j)=>{box(r,'pre'+(i+j),'prepend '+path,[24+j*354,y+53,334,24]);wire(r,'route'+i,'pre'+(i+j),j);wire(r,'pre'+(i+j),'out');});}box(r,'out','outlet',[24,Math.ceil(paths.length/4)*130+130,70,24],1,0,{index:1});return r;}
 box(p,'networkctl','js dot_area_link.js',[24,3300,500,26],3,7);
@@ -66,4 +69,5 @@ for(const [i,id] of ['monitoring','receiveport','sendport','selected'].entries()
 box(p,'netdelay','delay 200',[24,3500,250,24],2);box(p,'netinit','init',[320,3500,200,24],2,1,{maxclass:'message'});wire(p,'load','netdelay');wire(p,'netdelay','netinit');wire(p,'netinit','networkctl');
 box(p,'portconfig','route receive send',[650,3500,340,24],1,3);wire(p,'networkctl','portconfig',6);wire(p,'portconfig','netprereceiveport');wire(p,'portconfig','netpresendport',1);
 p.dependency_cache=[{name:'dot_area_engine.js',type:'TEXT',implicit:1},{name:'dot_area_view.js',type:'TEXT',implicit:1},{name:'dot_area_link.js',type:'TEXT',implicit:1}];
-process.stdout.write(JSON.stringify(document)+'\n');
+// Keep primitive arrays inline, matching Max's readable saved-patch convention.
+process.stdout.write(JSON.stringify(document,null,4).replace(/\[\n\s+((?:(?:-?\d+(?:\.\d+)?|"[^"\n]*")(?:,\n\s+)?)+)\n\s*\]/g,(_,items)=>'[ '+items.replace(/,\n\s+/g,', ')+' ]')+'\n');

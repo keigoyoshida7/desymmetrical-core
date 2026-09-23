@@ -8,7 +8,7 @@ function output(n,p,a){outlet(n,[p].concat(a));}
 function remember(p,a){values[p]=a;output(2,p,a);}
 function init(){values={};sound=0;gain=0;mode='direct';count=4;ui('sound',0);ui('gain',0);ui('mode',0);outlet(5,0);outlet(3,0);
  output(0,'/source/*/pres',[80]);output(0,'/source/*/radius',[0.2]);output(0,'/source/*/doppler',[0]);output(0,'/source/*/prer',[35]);output(0,'/source/*/env',[25]);output(0,'/source/*/revp',[35]);output(0,'/room/1/reverberance',[45]);
- var speakers=[-1.14,.58,1.18,.94,.58,1.18,-1.14,.58,-.85,.94,.58,-.85,1.02,-.88,1.18,1.02,.58,1.18,1.02,-.88,-.85,1.02,.58,-.85,-.94,-.7,1.32,.74,-.7,1.32,-.94,.4,1.32,.74,.4,1.32];
+ var speakers=[1.75,5.34,-0.4,-1.75,5.34,-0.4,1.75,5.34,2.6,-1.75,5.34,2.6,1.75,-1.34,-0.4,-1.75,-1.34,-0.4,1.75,-1.34,2.6,-1.75,-1.34,2.6,-3.34,3.75,-0.4,-3.34,0.25,-0.4,-3.34,3.75,2.6,-3.34,0.25,2.6,3.34,3.75,-0.4,3.34,0.25,-0.4,3.34,3.75,2.6,3.34,0.25,2.6,-0.1,2,-0.64];
  apply('/speakers/xyz',speakers,false);
  for(var i=1;i<=8;i++)apply('/source/'+i+'/xyz',[-.4+i*.15,.4,-.4],false);
  setcount(4);outlet(0,'bang');status();
@@ -17,6 +17,12 @@ function setcount(n){count=Math.max(1,Math.min(8,Math.round(n)));for(var i=1;i<=
 function setmode(m){if(m!=='direct'&&m!=='virtualspeakers')return;mode=m;outlet(3,m==='direct'?0:1);ui('mode',m==='direct'?0:1);remember('/dotarea/monitoring/mode',[m]);}
 function status(){remember('/dotarea/status',['ready']);remember('/dotarea/monitoring/mode',[mode]);}
 function apply(p,a,feedback){
+ var sp=/^\/speaker\/(\d+)\/xyz$/.exec(p);
+ if(p==='/speakers/xyz'||sp){
+  if(p==='/speakers/xyz'&&a.length!==51)return;
+  if(sp&&(Number(sp[1])<1||Number(sp[1])>17||a.length!==3))return;
+  for(var n=0;n<a.length;n++)if(typeof a[n]!=='number'||!isFinite(a[n]))return;
+ }
  if(p==='/sources/xyz'){for(var i=0;i<Math.min(8,a.length/3);i++)apply('/source/'+(i+1)+'/xyz',a.slice(i*3,i*3+3),feedback);return;}
  var official=/^\/source\/[1-8]\/(xyz|dist|spread|prer|env)$/.test(p)||/^\/speaker\/(\d+)\/xyz$/.test(p)||p==='/speakers/xyz';
  if(official){

@@ -1,8 +1,8 @@
 import {cartesian,clamp,distance,relative,absolute,spherical,type SceneState} from './model';
 const remap=(s:SceneState,key:keyof SceneState['mappings'],v:number)=>{const m=s.mappings[key];return m.min+clamp(v,0,1)*(m.max-m.min);};
 export function applyMappings(s:SceneState){
- const p=s.light.position,a=Math.atan2(p[0]+.45,p[1]),d=distance(p,[-.45,0,.16]);
- if(s.shadow.mode==='derived')Object.assign(s.shadow,{centroid:[-.45-Math.sin(a)*.6,-Math.cos(a)*.45,.55],area:clamp(.2+.25/(d+.2),0,1),penumbra:clamp(.15+.25*p[2],0,1),density:.2+.7*s.light.intensity,entropy:.2+.3*(.5+.5*Math.sin(3*a))});
+ const p=s.light.position,c=s.stone.position,a=Math.atan2(p[0]-c[0],p[1]-c[1]),d=distance(p,c);
+ if(s.shadow.mode==='derived')Object.assign(s.shadow,{centroid:[c[0]-Math.sin(a)*.6,c[1]-Math.cos(a)*.45,c[2]+.39],area:clamp(.2+.25/(d+.2),0,1),penumbra:clamp(.15+.25*p[2],0,1),density:.2+.7*s.light.intensity,entropy:.2+.3*(.5+.5*Math.sin(3*a))});
  const f=s.shadow;
  for(const [i,source] of s.sources.entries()){
   if(s.mappings.centroid.enabled){const m=s.mappings.centroid;source.position=f.centroid.map(v=>m.min+(clamp(v,-1,1)+1)*.5*(m.max-m.min)) as [number,number,number];source.position[0]+=(i-(s.sources.length-1)/2)*.08;}

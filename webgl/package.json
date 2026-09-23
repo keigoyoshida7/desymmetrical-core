@@ -1,14 +1,33 @@
 {
-  "name": "de-symmetrical-adaptation", "version": "0.1.0", "private": true,
-  "type": "module", "engines": {"node": ">=22.12.0"},
+  "name": "de-symmetrical-core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
-    "dev": "node scripts/dev.mjs", "web": "vite --host 127.0.0.1",
-    "osc": "node bridge/server.mjs", "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build", "preview": "vite preview --host 127.0.0.1",
+    "dev": "node scripts/dev.mjs",
+    "web": "vite --host 127.0.0.1",
+    "osc": "node bridge/server.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview --host 127.0.0.1",
     "test": "tsx --test tests/*.test.ts && node --test tests/*.test.mjs",
     "validate:max": "node scripts/validate-max.mjs",
-    "audit:spat": "node scripts/audit-spat.mjs"
+    "audit:spat": "node scripts/audit-spat.mjs",
+    "publish:pages": "npm run build && node scripts/publish-pages.mjs"
   },
-  "dependencies": {"three": "^0.180.0", "osc-js": "^2.4.1", "ws": "^8.18.3"},
-  "devDependencies": {"typescript": "^5.9.2", "vite": "^7.1.5", "@types/three": "^0.180.0", "tsx": "^4.20.5", "@types/node": "^22.18.1"}
+  "dependencies": {
+    "three": "^0.180.0",
+    "osc-js": "^2.4.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "@types/three": "^0.180.0",
+    "tsx": "^4.20.5",
+    "@types/node": "^22.18.1"
+  }
 }

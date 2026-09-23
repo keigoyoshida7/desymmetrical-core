@@ -39,8 +39,38 @@ function harness(){
  vm.createContext(c);vm.runInContext(readFileSync(new URL('../../dot_area_link.js',import.meta.url),'utf8'),c);
  const send=(origin:number,path:string,args:any[]=[])=>{c.inlet=origin;c.messagename=path;c.anything(...args);};return {c,send,emitted,widgets};
 }
-test('main Max uses same 12 default coordinates as web; speaker edits reach BOTH renderers',()=>{
- const h=harness();h.c.init();const expected=defaults().speakers.slice(0,12).flatMap(s=>relative(s.position,defaults().listener));h.c.speakers.forEach((v:number,i:number)=>assert.ok(Math.abs(v-expected[i])<1e-8));h.emitted.length=0;h.send(0,'/speaker/3/xyz',[.2,.3,.4]);assert.ok(h.emitted.some(e=>e.port===0&&e.message[0]==='/speaker/3/xyz'));const virtual=h.emitted.find(e=>e.port===1)!;assert.deepEqual(virtual.message.slice(7,10),[.2,.3,.4]);assert.equal(virtual.message.length,37);
+test('main Max uses the same 17 Core coordinates as web; CH17 edits reach BOTH renderers',()=>{
+ const h=harness();h.c.init();const expected=defaults().speakers.filter(s=>s.role!=='sub').flatMap(s=>relative(s.position,defaults().listener));
+ assert.equal(h.c.speakers.length,51);h.c.speakers.forEach((v:number,i:number)=>assert.ok(Math.abs(v-expected[i])<1e-8));
+ assert.ok(h.emitted.some(e=>e.port===5&&e.message[0]==='/speaker/number'&&e.message[1]===17));
+ h.emitted.length=0;h.send(0,'/speaker/17/xyz',[.2,.3,.4]);assert.ok(h.emitted.some(e=>e.port===0&&e.message[0]==='/speaker/17/xyz'));const virtual=h.emitted.find(e=>e.port===1)!;assert.deepEqual(virtual.message.slice(49,52),[.2,.3,.4]);assert.equal(virtual.message.length,52);
+});
+test('Core Max rejects legacy 12-feed layouts, nonexistent channels and nonfinite coordinates; SUB stays metadata',()=>{
+ const h=harness();h.c.init();const before=Array.from(h.c.speakers);h.emitted.length=0;
+ h.send(0,'/speakers/xyz',Array(36).fill(0));h.send(0,'/speaker/18/xyz',[1,2,3]);h.send(0,'/speaker/1/xyz',[NaN,0,0]);
+ assert.deepEqual(Array.from(h.c.speakers),before);assert.equal(h.emitted.length,0);
+ h.send(0,'/dotarea/subwoofer/xyz',[1,2,3]);assert.equal(h.emitted.filter(e=>e.port===0||e.port===1).length,0);
+ assert.ok(h.emitted.some(e=>e.port===2&&e.message[0]==='/dotarea/subwoofer/xyz'));
+ h.send(0,'/speakers/xyz',Array(51).fill(.1));assert.ok(h.emitted.some(e=>e.port===1&&e.message.length===52));
+});
+test('companion Max starts with the same 17 listener-relative Core coordinates',()=>{
+ const packets:any[]=[];const c:any={outlet:(port:number,...args:any[])=>packets.push({port,message:Array.isArray(args[0])?Array.from(args[0]):args}),arrayfromargs:(a:any)=>Array.from(a),patcher:{getnamed:()=>({message:()=>{}})}};
+ vm.createContext(c);vm.runInContext(readFileSync(new URL('../max/dot_area_webgl_control.js',import.meta.url),'utf8'),c);c.init();
+ const actual=packets.find(p=>p.port===1&&p.message[0]==='/speakers/xyz').message.slice(1);
+ const s=defaults(),expected=s.speakers.filter(x=>x.role!=='sub').flatMap(x=>relative(x.position,s.listener));
+ assert.equal(actual.length,51);actual.forEach((v:number,i:number)=>assert.ok(Math.abs(v-expected[i])<1e-8));
+});
+test('both Max patches wire all 17 full-range outputs to the virtual-speaker monitor',()=>{
+ for(const [file,inputs] of [['../../dot_area_spat_explorer.maxpat',4],['../max/dot_area_webgl_bridge.maxpat',8]] as const){
+  const root=JSON.parse(readFileSync(new URL(file,import.meta.url),'utf8')).patcher;
+  const box=(p:any,id:string)=>p.boxes.find((x:any)=>x.box.id===id).box;
+  assert.match(box(root,'oper').text,/\/speaker\/number 17/);
+  const audio=box(root,'audio').patcher,multi=box(audio,'multi'),virtual=box(audio,'virtual');
+  assert.ok(multi.text.includes(`@inputs ${inputs} @outputs 17`));assert.equal(multi.numoutlets,18);
+  assert.ok(virtual.text.includes('@speakers 17'));assert.equal(virtual.numinlets,17);
+  const wires=audio.lines.map((x:any)=>x.patchline).filter((l:any)=>l.source[0]==='multi'&&l.destination[0]==='virtual');
+  assert.equal(wires.length,17);for(let i=0;i<17;i++)assert.ok(wires.some((l:any)=>l.source[1]===i&&l.destination[1]===i));
+ }
 });
 test('main Max guards synchronous native feedback, reports master without accepting network gain',()=>{
  const h=harness();h.c.init();h.emitted.length=0;h.c.guard=1;h.send(1,'/source/1/xyz',[1,0,0]);assert.equal(h.emitted.length,0);h.c.guard=0;h.send(1,'/source/1/xyz',[1,0,0]);assert.ok(h.emitted.some(e=>e.port===2&&e.message[0]==='/source/1/xyz'));assert.equal(h.emitted.filter(e=>e.port===0).length,0);h.emitted.length=0;h.send(0,'/dotarea/audio/gain',[1]);assert.equal(h.emitted.filter(e=>e.port===4||e.port===0).length,0);h.send(2,'/dotarea/master/state',[1,.7,.7]);assert.ok(h.emitted.some(e=>e.port===2&&e.message[0]===paths.master));

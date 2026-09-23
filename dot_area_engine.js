@@ -27,7 +27,7 @@ function init() {
     resetMappings(); manual={};
     for(var i=0;i<names.length;i++) manual[names[i]]=defaults[i];
     cache={}; phase=0;
-    outlet(1,['/source/number',4]); outlet(1,['/speaker/number',12]);
+    outlet(1,['/source/number',4]); outlet(1,['/speaker/number',17]);
     outlet(1,['/listener/headphones/visible',1]);
     outlet(1,['/source/*/editable',0]);
     outlet(1,['/display/zoom',30]);

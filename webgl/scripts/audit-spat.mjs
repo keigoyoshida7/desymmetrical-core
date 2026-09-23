@@ -1,7 +1,8 @@
 // Read-only audit of the installed package. Optional first argument: Spat package path.
 import {readFile,access} from 'node:fs/promises';
 import path from 'node:path';
-const base=process.argv[2]||'/Users/guillaume/Documents/Max 9/Packages/spat5';
+import os from 'node:os';
+const base=process.argv[2]||process.env.SPAT5_PATH||path.join(os.homedir(),'Documents/Max 9/Packages/spat5');
 const info=JSON.parse(await readFile(path.join(base,'package-info.json'),'utf8'));
 const refs='docs/ref/refpages/spat5-ref/';
 const checks=[

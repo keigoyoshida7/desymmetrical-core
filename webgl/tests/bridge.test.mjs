@@ -22,3 +22,10 @@ test('real WebSocket ↔ OSC UDP, bundles, echo tags, reconfiguration and invali
   const newPort=await port(),changed=next(ws,x=>x.type==='status'&&x.config.maxSendPort===newPort);ws.send(JSON.stringify({type:'configure',config:{...config,maxSendPort:newPort}}));await changed;const newIn=next(ws,x=>x.type==='osc');fakeMax.send(Buffer.from(new OSC.Message('/source/2/env',44).pack()),newPort,'127.0.0.1');assert.equal((await newIn).messages[0].args[0],44);assert.ok(bridge.stats().incoming>=4);
  }finally{ws.terminate();fakeMax.close();await bridge.close();}
 });
+test('Core bridge accepts exactly 17 directional coordinates, including CH17, and rejects legacy layouts',()=>{
+ assert.equal(validMessage({address:'/speakers/xyz',args:Array(51).fill(0)}),true);
+ assert.equal(validMessage({address:'/speaker/17/xyz',args:[.1,.2,.3]}),true);
+ assert.equal(validMessage({address:'/speaker/18/xyz',args:[.1,.2,.3]}),false);
+ assert.equal(validMessage({address:'/speakers/xyz',args:Array(36).fill(0)}),false);
+ assert.equal(validMessage({address:'/speakers/xyz',args:Array(54).fill(0)}),false);
+});

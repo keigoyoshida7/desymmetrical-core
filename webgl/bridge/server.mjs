@@ -4,9 +4,9 @@ import {pathToFileURL} from 'node:url';
 import {WebSocketServer,WebSocket} from 'ws';
 import OSC from 'osc-js';
 export function validMessage(m){
- if(!(m&&typeof m.address==='string'&&/^\/(source\/[1-8]\/(xyz|dist|spread|prer|env)|speaker\/([1-9]|1[0-2])\/xyz|speakers\/xyz|dotarea\/[a-zA-Z0-9_/]+)$/.test(m.address)&&Array.isArray(m.args)&&m.args.length<=64&&m.args.every(v=>(typeof v==='number'&&Number.isFinite(v)&&Math.abs(v)<=1e6)||(typeof v==='string'&&v.length<=128))))return false;
+ if(!(m&&typeof m.address==='string'&&/^\/(source\/[1-8]\/(xyz|dist|spread|prer|env)|speaker\/([1-9]|1[0-7])\/xyz|speakers\/xyz|dotarea\/[a-zA-Z0-9_/]+)$/.test(m.address)&&Array.isArray(m.args)&&m.args.length<=64&&m.args.every(v=>(typeof v==='number'&&Number.isFinite(v)&&Math.abs(v)<=1e6)||(typeof v==='string'&&v.length<=128))))return false;
  if(m.address.startsWith('/dotarea/'))return true;
- return m.args.every(v=>typeof v==='number')&&m.args.length===(m.address==='/speakers/xyz'?36:m.address.endsWith('/xyz')?3:1);
+ return m.args.every(v=>typeof v==='number')&&m.args.length===(m.address==='/speakers/xyz'?51:m.address.endsWith('/xyz')?3:1);
 }
 export function configCheck(c){if(!/^[a-zA-Z0-9.:-]{1,253}$/.test(c.maxHost))throw Error('Invalid Max host');for(const k of ['wsPort','maxReceivePort','maxSendPort'])if(!Number.isInteger(c[k])||c[k]<1024||c[k]>65535)throw Error('Invalid port '+k);if(c.maxReceivePort===c.maxSendPort)throw Error('Max send and receive ports must differ');return c;}
 export const signature=m=>m.address+' '+JSON.stringify(m.args.map(v=>typeof v==='number'?+v.toFixed(4):v));

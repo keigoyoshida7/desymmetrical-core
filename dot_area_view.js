@@ -21,10 +21,12 @@ function paint(){
     line(cx-r-8,cy,cx+r+8,cy,[0.2,0.25,0.29,1]);
     line(cx,cy-r-8,cx,cy+r+8,[0.2,0.25,0.29,1]);
     text('+Y / FRONT',cx-32,48,muted,10);
-    // Flattened acrylic footprint, shape only (not a surveyed scale).
+    // Core trapezoidal base and top, shape only (not a surveyed scale).
     color([0.35,0.61,0.69,0.7]);mgraphics.set_line_width(1.5);
-    mgraphics.ellipse(cx-81,cy-30,162,60);mgraphics.stroke();
-    text('ACRYLIC',cx-82,cy-39,muted,10);
+    var base=[[-81,-40],[81,-40],[42,40],[-42,40]],top=[[-35,-16],[35,-16],[18,16],[-18,16]];
+    for(var ring=0;ring<2;ring++){var polygon=ring?top:base;mgraphics.move_to(cx+polygon[0][0],cy+polygon[0][1]);for(var vertex=1;vertex<4;vertex++)mgraphics.line_to(cx+polygon[vertex][0],cy+polygon[vertex][1]);mgraphics.close_path();mgraphics.stroke();}
+    for(var edge=0;edge<4;edge++)line(cx+base[edge][0],cy+base[edge][1],cx+top[edge][0],cy+top[edge][1],[0.35,0.61,0.69,0.7],1);
+    text('ACRYLIC / TRAPEZOID',cx-82,cy-53,muted,10);
     var sx=-Math.sin(a)*r*0.83,sy=Math.cos(a)*r*0.83;
     var breadth=8+data[6]*26;
     color([0.65,0.6,1,0.10+data[7]*0.18]);
@@ -40,17 +42,17 @@ function paint(){
     text('STONE',cx-18,cy+33,ink,10);
     var lx=cx+Math.sin(a)*lr,ly=cy-Math.cos(a)*lr;
     line(lx,ly,cx,cy,gold,1.5);circle(lx,ly,13,[1,0.79,0.37,0.12+data[3]*0.12],true);circle(lx,ly,6,gold,true);
-    text('LIGHT '+Math.round(data[0])+'°',lx+13,ly-10,gold,11);
+    text('LIGHT / CH17 '+Math.round(data[0])+'°',lx+13,ly-10,gold,11);
     for(var i=0;i<data[8];i++){
         var p=positions[i],d=Math.sqrt(p[0]*p[0]+p[1]*p[1]),s=r*0.84/(Math.max(2.7,d));
         var px=cx+p[0]*s,py=cy-p[1]*s,c=i===2?gold:(i===3?violet:mint);
         circle(px,py,6,c,false);text(''+(i+1),px+8,py+4,c,10);
     }
     // Co-located upper/lower wall pairs are labelled together in top view.
-    var speakers=[['F1 / F3',cx-80,62],['F2 / F4',cx+65,62],['W1 / W3',w-90,cy-62],['W2 / W4',w-90,cy+62],['C1',70,100],['C2',w-155,100],['C3',70,h-85],['C4',w-155,h-85]];
-    for(i=0;i<speakers.length;i++){var v=speakers[i];color(muted);mgraphics.rectangle(v[1],v[2],7,7);mgraphics.stroke();text(v[0],v[1]+12,v[2]+7,muted,10);}
+    var speakers=[['CH5 / 7',cx-120,62],['CH6 / 8',cx+65,62],['CH1 / 3',cx-120,h-68],['CH2 / 4',cx+65,h-68],['CH13 / 15',40,105],['CH14 / 16',40,h-105],['CH9 / 11',w-135,105],['CH10 / 12',w-135,h-105]];
+    for(i=0;i<speakers.length;i++){var v=speakers[i];circle(v[1]+4,v[2]+4,4,muted,false);text(v[0],v[1]+12,v[2]+7,muted,10);}
     text('SUB1',w-73,h-49,muted,10);
-    text('12.1 proposal · diagram only',18,h-38,muted,10);
+    text('17.1 Core proposal · diagram only',18,h-38,muted,10);
 }
 function move(x,y){var w=box.rect[2]-box.rect[0],h=box.rect[3]-box.rect[1];var dx=x-w*0.5,dy=h*0.52-y;var r=Math.min(w*0.29,h*0.34);var a=(Math.atan2(dx,dy)*180/Math.PI+360)%360;var d=Math.max(0.4,Math.min(3,0.4+2.6*(Math.sqrt(dx*dx+dy*dy)/r-0.35)/0.65));outlet(0,'lightxy',a,d);}
 function onclick(x,y){move(x,y);}
