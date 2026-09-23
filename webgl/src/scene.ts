@@ -8,7 +8,7 @@ export type Selection = { kind: 'source' | 'speaker' | 'listener' | 'target' | '
 const gold = 0xd99d71, lavender = 0x94a9e2;
 const mat = (color: number, extra: T.MeshStandardMaterialParameters = {}) => new T.MeshStandardMaterial({ color, roughness: .65, metalness: .12, ...extra });
 
-function label(text: string, color = '#b4b9c5', width = .62) {
+function label(text: string, color = '#b4b9c5', width = .62, pixels = 10) {
  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')!;
  ctx.font = '500 38px sans-serif'; canvas.width = Math.ceil(ctx.measureText(text).width + 28); canvas.height = 72;
  ctx.font = '500 38px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = color;
@@ -16,7 +16,7 @@ function label(text: string, color = '#b4b9c5', width = .62) {
  const texture = new T.CanvasTexture(canvas); texture.colorSpace = T.SRGBColorSpace;
  const sprite = new T.Sprite(new T.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
  sprite.scale.set(width, width * canvas.height / canvas.width, 1);
- sprite.userData.labelAspect = canvas.width / canvas.height; sprite.userData.labelPixels = width > .8 ? 11 : 12;
+ sprite.userData.labelAspect = canvas.width / canvas.height; sprite.userData.labelPixels = pixels;
  sprite.renderOrder = 5; return sprite;
 }
 function mesh(g: T.BufferGeometry, m: T.Material) { const o = new T.Mesh(g, m); o.castShadow = true; return o; }
@@ -34,7 +34,7 @@ function dimension(group: T.Group, a: T.Vector3, b: T.Vector3, text: string, off
  const points = [a, b], tick = offset.clone().normalize().multiplyScalar(.07);
  for (const p of [a, b]) points.push(p.clone().sub(tick), p.clone().add(tick));
  group.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(points), new T.LineBasicMaterial({ color: 0x747f95, transparent: true, opacity: .65 })));
- const l = label(text, '#a9b2c6', .9); l.position.copy(a).lerp(b, .5).add(offset); group.add(l);
+ const l = label(text, '#a9b2c6', .9, 11); l.position.copy(a).lerp(b, .5).add(offset); group.add(l);
 }
 function shapeFromPlan(vertices: Vec3[]) {
  const shape = new T.Shape(); vertices.forEach(([x, y], i) => i ? shape.lineTo(x, y) : shape.moveTo(x, y)); shape.closePath();
@@ -149,7 +149,7 @@ export class InstallationScene {
     new T.Vector3(-w / 2, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, d / 2),
     new T.Vector3(-w / 2 - corridor, .01, d / 2), new T.Vector3(-w / 2 - corridor, .01, -d / 2),
    ]), new T.LineBasicMaterial({ color: 0x596275 })); this.room.add(corridorEdge);
-   const entry = label('LIGHT LOCK', '#a5afc4', 1.6); entry.position.set(-w / 2 - corridor / 2, .07, 0); this.room.add(entry);
+   const entry = label('LIGHT LOCK', '#a5afc4', 1.6, 11); entry.position.set(-w / 2 - corridor / 2, .07, 0); this.room.add(entry);
   }
   dimension(this.room, new T.Vector3(-w / 2, .03, d / 2 + .34), new T.Vector3(w / 2, .03, d / 2 + .34), `${w.toFixed(2)} m`, new T.Vector3(0, .08, .12));
   dimension(this.room, new T.Vector3(w / 2 + .34, .03, -d / 2), new T.Vector3(w / 2 + .34, .03, d / 2), `${d.toFixed(2)} m`, new T.Vector3(.15, .08, 0));
@@ -207,7 +207,7 @@ export class InstallationScene {
 
  update(s: SceneState) {
   this.roomBuild(s); this.sculptureBuild(s); this.suspensionBuild(s); this.speakerBuild(s);
-  this.stone.scale.set(s.stone.width, s.stone.height, s.stone.depth); this.stone.position.set(...toThree(s.stone.position));
+  this.stone.scale.set(s.stone.width, s.stone.height, s.stone.depth); this.stone.position.set(...toThree(s.stone.position)); this.stone.rotation.y = s.stone.yaw * Math.PI / 180;
   this.robot.position.set(...toThree(basePosition(s))); this.joints.forEach((joint, i) => joint.quaternion.setFromAxisAngle(axes[i], s.robot.joints[i] * Math.PI / 180));
   this.light.intensity = s.light.intensity * 60; this.target.position.set(...toThree(s.robot.target)); this.target.visible = s.robot.control === 'target';
   this.listener.position.set(...toThree(s.listener.position)); this.listener.rotation.y = -s.listener.yaw * Math.PI / 180;

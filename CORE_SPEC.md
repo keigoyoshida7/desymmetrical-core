@@ -23,6 +23,7 @@ The document does not specify acrylic lengths, the exact stone size, surveyed sp
 
 - Acrylic: front base width 2.70 m, rear base width 1.40 m, depth 1.40 m, height 0.35 m, slope 32.5°, nominal thickness 8 mm. Thickness is represented by nominal panel slabs; joins, fabrication tolerances and optical material behavior are not simulated.
 - Stone proxy: 0.512 × 0.354 × 0.319 m, inherited as an illustrative scale from the earlier prototype. It is not a measurement stated by Core v7.
+- Entrance orientation: following the artist's 2026-09-23 direction, the acrylic's long front edge and the stone's defined front face the left entrance (world −X; yaw 90°). Both orientations remain editable. Older Core saves preserve their original stone orientation; the entrance-alignment button applies the new orientation to both objects.
 - Wall positions: 3.50 m pair spacing, 0.16 m inset, lower height 1.20 m and upper height 4.20 m. These are editable layout assumptions, not installation instructions.
 - Baffle: 0.16 × 0.16 × 0.075 m; driver depth 0.055 m. Only the 0.1161 m outside diameter is taken from the supplied driver specification.
 - Generic arm suspension base and link lengths are visualization choices. No collision checks, mounting-load calculations, robot commands or safety functions exist.

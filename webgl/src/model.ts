@@ -8,7 +8,7 @@ export interface Acrylic {position:Vec3;yaw:number;bottomFrontWidth:number;botto
 export interface Mapping {enabled:boolean;min:number;max:number;}
 export interface SceneState {
  version:2; edition:'core'; room:{width:number;depth:number;height:number;wallHeight:number;entranceWidth:number;corridorDepth:number};
- speakerSetup:SpeakerSetup; acrylic:Acrylic; stone:{position:Vec3;width:number;depth:number;height:number};
+ speakerSetup:SpeakerSetup; acrylic:Acrylic; stone:{position:Vec3;yaw:number;width:number;depth:number;height:number};
  robot:{joints:number[];control:'joints'|'target';target:Vec3;base:Vec3};
  light:{position:Vec3;intensity:number};
  listener:{position:Vec3;yaw:number}; speakers:Speaker[];sources:Source[];
@@ -47,12 +47,15 @@ export function acrylicPlan(a:Acrylic):{bottom:Vec3[];top:Vec3[]}{
  return {bottom:[[-front,halfDepth,0],[front,halfDepth,0],[rear,-halfDepth,0],[-rear,-halfDepth,0]],top:[[-topFront,topDepth,a.height],[topFront,topDepth,a.height],[topRear,-topDepth,a.height],[-topRear,-topDepth,a.height]]};
 }
 export function validAcrylic(a:Acrylic){const p=acrylicPlan(a);return p.top[1][0]>.025&&p.top[2][0]>.025&&p.top[0][1]>.025;}
+// Local +Y is the sculpture front; +90° around Three's up axis points it toward the -X entrance.
+export const ENTRANCE_YAW=90;
+export function faceEntrance(s:SceneState){s.acrylic.yaw=ENTRANCE_YAW;s.stone.yaw=ENTRANCE_YAW;}
 export function synchronizeArmSpeaker(s:SceneState){const arm=s.speakers.find(x=>x.role==='arm');if(arm)arm.position=s.light.position.map((v,i)=>v+s.speakerSetup.armOffset[i]) as Vec3;}
 export function defaults():SceneState{
  const room={width:7,depth:7,height:7,wallHeight:5.4,entranceWidth:1.6,corridorDepth:2};const speakerSetup=defaultSpeakerSetup();
  const s:SceneState={version:2,edition:'core',room,speakerSetup,
- acrylic:{position:[0,0,0],yaw:0,bottomFrontWidth:2.7,bottomRearWidth:1.4,depth:1.4,height:.35,slope:32.5,thickness:.008},
- stone:{position:[0,0,.319/2],width:.512,depth:.354,height:.319},
+ acrylic:{position:[0,0,0],yaw:ENTRANCE_YAW,bottomFrontWidth:2.7,bottomRearWidth:1.4,depth:1.4,height:.35,slope:32.5,thickness:.008},
+ stone:{position:[0,0,.319/2],yaw:ENTRANCE_YAW,width:.512,depth:.354,height:.319},
  robot:{joints:[0,25,-55,0,15,0],control:'joints',target:[0,0,.8],base:[0,-1,1.3]},
  light:{position:[0,0,1],intensity:.7},listener:{position:[0,2,1.6],yaw:180},speakers:speakerLayout(room,speakerSetup),
  sources:Array.from({length:4},(_,i)=>({id:i+1,position:[-.375+i*.25,.3,.7] as Vec3,spread:20,room:35,env:25})),
@@ -89,7 +92,11 @@ export function validateScene(input:unknown):SceneState {
   else if(Array.isArray(t)){if(!Array.isArray(v)||v.length>256)throw Error(path+': invalid array');if(t.length)for(const item of v)shape(item,t[0],path+'[]');}
   else {if(!v||typeof v!=='object')throw Error(path+': invalid object');for(const [k,value] of Object.entries(t as object))shape((v as Record<string,unknown>)[k],value,path+'.'+k);}
  }
- shape(input,template,'scene');const s=structuredClone(input) as SceneState;
+ const s=structuredClone(input) as SceneState;
+ // Earlier Core v2 presets/recordings had an unrotated stone and no stone yaw field.
+ // Preserve that original orientation rather than applying the new default on import.
+ if(s.stone&&typeof s.stone==='object'&&!Object.hasOwn(s.stone,'yaw'))s.stone.yaw=0;
+ shape(s,template,'scene');
  const ok=(v:boolean,message:string)=>{if(!v)throw Error(message);};
  ok(s.sources.length>=1&&s.sources.length<=8,'Use 1–8 sources');
  ok(s.sources.every((x,i)=>x.id===i+1),'Source IDs must be sequential 1…N');
@@ -108,6 +115,7 @@ export function validateScene(input:unknown):SceneState {
  const a=s.acrylic;
  ok(a.bottomFrontWidth>=.2&&a.bottomFrontWidth<=10&&a.bottomRearWidth>=.2&&a.bottomRearWidth<=10&&a.depth>=.2&&a.depth<=10&&a.height>=.02&&a.height<=5&&a.slope>=5&&a.slope<=85&&Math.abs(a.yaw)<=180&&a.thickness>=.001&&a.thickness<=.05&&validAcrylic(a),'Acrylic top collapses: reduce height, increase slope or enlarge the footprint');
  ok(['width','depth','height'].every(k=>s.stone[k as 'width']>=.05&&s.stone[k as 'width']<=5),'Invalid stone dimensions');
+ ok(Math.abs(s.stone.yaw)<=180,'Invalid stone yaw');
  const p=s.speakerSetup;
  ok(p.wallInset>=.05&&p.wallInset<=Math.min(r.width,r.depth)/2-.2&&p.spacing>=.2&&p.spacing<=Math.min(r.width,r.depth)-2*p.wallInset&&p.lowerHeight>=.2&&p.upperHeight>p.lowerHeight&&p.upperHeight<=r.wallHeight,'Invalid wall speaker layout');
  ok(p.driverDiameter>=.05&&p.driverDiameter<=.5&&p.driverDepth>=.01&&p.driverDepth<=.5&&p.baffleWidth>=p.driverDiameter&&p.baffleWidth<=1&&p.baffleHeight>=p.driverDiameter&&p.baffleHeight<=1&&p.baffleDepth>=.01&&p.baffleDepth<=1&&[p.subWidth,p.subHeight,p.subDepth].every(v=>v>=.1&&v<=2)&&p.armOffset.every(v=>Math.abs(v)<=1),'Invalid speaker shape dimensions');

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaults,relative,absolute,toThree,fromThree,cartesian,spherical,distance,validateScene,speakerLayout,acrylicPlan,synchronizeArmSpeaker,Store,type MotionMode} from '../src/model';
+import {Vector3} from 'three';
+import {defaults,relative,absolute,toThree,fromThree,cartesian,spherical,distance,validateScene,speakerLayout,acrylicPlan,faceEntrance,synchronizeArmSpeaker,Store,type MotionMode,type Vec3} from '../src/model';
 import {advanceMotion,motionPosition,motionPresets,setMotionPreset} from '../src/motion';
 import {forward,solveTarget} from '../src/robot';
 import {applyMappings} from '../src/mappings';
@@ -11,6 +12,32 @@ test('world / Three / listener transforms round-trip, including listener yaw',()
 test('Core layout has four wall quartets, arm CH17 and separate sub metadata',()=>{const s=defaults();assert.equal(s.speakers.length,18);assert.equal(s.speakers[17].id,'SUB1');assert.equal(s.speakers[16].role,'arm');assert.equal(new Set(s.speakers.map(x=>x.id)).size,18);assert.deepEqual([s.room.width,s.room.depth,s.room.height,s.room.wallHeight],[7,7,7,5.4]);assert.equal(s.speakerSetup.driverDiameter,.1161);for(const wall of ['rear','front','right','left'])assert.equal(s.speakers.filter(x=>x.wall===wall).length,4);const messages=sceneMessages(s);assert.equal(messages.find(x=>x.address==='/speakers/xyz')!.args.length,51);assert.deepEqual(messages.find(x=>x.address==='/dotarea/subwoofer/xyz')!.args,s.speakers[17].position);});
 test('wall speaker planning settings resize the layout without losing channel order',()=>{const s=defaults();s.room.width=8;s.room.depth=9;s.speakerSetup.spacing=4;s.speakerSetup.lowerHeight=1.5;s.speakerSetup.upperHeight=4.8;const speakers=speakerLayout(s.room,s.speakerSetup);assert.deepEqual(speakers[0].position,[-2,-4.34,1.5]);assert.deepEqual(speakers[11].position,[3.84,2,4.8]);assert.deepEqual(speakers[15].position,[-3.84,2,4.8]);assert.deepEqual(speakers.map(x=>x.id),defaults().speakers.map(x=>x.id));});
 test('acrylic has trapezoidal bottom and top with the specified slope on all four faces',()=>{const s=defaults(),a=s.acrylic,{bottom,top}=acrylicPlan(a);assert.notEqual(bottom[1][0]-bottom[0][0],bottom[2][0]-bottom[3][0]);assert.notEqual(top[1][0]-top[0][0],top[2][0]-top[3][0]);for(let i=0;i<4;i++){const j=(i+1)%4,dx=bottom[j][0]-bottom[i][0],dy=bottom[j][1]-bottom[i][1],horizontal=Math.abs(dx*(top[i][1]-bottom[i][1])-dy*(top[i][0]-bottom[i][0]))/Math.hypot(dx,dy);near(Math.atan2(a.height,horizontal)*180/Math.PI,32.5);}assert.throws(()=>validateScene({...s,acrylic:{...a,height:2}}),/Acrylic top collapses/);});
+test('default acrylic long edge and stone front face the left entrance after Three rotation',()=>{
+ const s=defaults(),bottom=acrylicPlan(s.acrylic).bottom;
+ const rotated=(p:Vec3,yaw:number)=>fromThree(new Vector3(...toThree(p)).applyAxisAngle(new Vector3(0,1,0),yaw*Math.PI/180).toArray());
+ const frontLength=distance(bottom[0],bottom[1]);
+ for(let i=1;i<4;i++)assert.ok(frontLength>distance(bottom[i],bottom[(i+1)%4]));
+ const world=bottom.map(p=>rotated(p,s.acrylic.yaw));
+ near(world[0][0],-s.acrylic.depth/2);near(world[1][0],-s.acrylic.depth/2);
+ assert.ok(world[0][0]<world[2][0]&&world[1][0]<world[3][0]);
+ const stoneFront=rotated([0,s.stone.depth/2,0],s.stone.yaw);
+ near(stoneFront[0],-s.stone.depth/2);near(stoneFront[1],0);near(stoneFront[2],0);
+});
+test('entrance alignment preserves sculpture positions and speaker layout',()=>{
+ const s=defaults();s.acrylic.position=[.5,.3,.1];s.stone.position=[.2,.4,.6];s.acrylic.yaw=-15;s.stone.yaw=-45;
+ const before=structuredClone(s);faceEntrance(s);
+ assert.deepEqual(s,{...before,acrylic:{...before.acrylic,yaw:90},stone:{...before.stone,yaw:90}});
+});
+test('older Core v2 presets and recordings preserve stone orientation and interpolate new yaw',()=>{
+ const legacy=JSON.parse(JSON.stringify(defaults()));delete legacy.stone.yaw;legacy.acrylic.yaw=-30;
+ const loaded=parsePresets([{name:'Previous study',scene:legacy}])[0].scene;
+ assert.equal(loaded.stone.yaw,0);assert.equal(loaded.acrylic.yaw,-30);assert.equal(Object.hasOwn(legacy.stone,'yaw'),false);
+ const current=defaults();current.stone.yaw=120;
+ assert.equal(parsePresets([{name:'New study',scene:current}])[0].scene.stone.yaw,120);
+ const frames=parseRecording({version:2,edition:'core',frames:[{t:0,scene:legacy},{t:2,scene:current}]});
+ near(interpolateFrames(frames,0).stone.yaw,0);near(interpolateFrames(frames,1).stone.yaw,60);near(interpolateFrames(frames,2).stone.yaw,120);
+ for(const yaw of [undefined,NaN,'90',181,-181])assert.throws(()=>validateScene({...current,stone:{...current.stone,yaw}}),/stone.yaw|stone yaw/);
+});
 test('Core validation rejects impossible dimensions, malformed geometry and incompatible Adaptation scenes',()=>{const s=defaults();assert.throws(()=>validateScene({...s,version:1}),/not a De-symmetrical Core/);assert.throws(()=>validateScene({...s,edition:'adaptation'}),/different installation/);assert.throws(()=>validateScene({...s,room:{...s.room,wallHeight:8}}),/room dimensions/);assert.throws(()=>validateScene({...s,room:{...s.room,width:10,depth:4,entranceWidth:5}}),/room dimensions/);assert.throws(()=>validateScene({...s,speakerSetup:{...s.speakerSetup,lowerHeight:5}}),/speaker layout/);assert.throws(()=>validateScene({...s,speakerSetup:{...s.speakerSetup,baffleWidth:.01}}),/speaker shape/);assert.throws(()=>validateScene({...s,stone:{...s.stone,width:0}}),/stone dimensions/);const bad=structuredClone(s);bad.speakers[0].role='arm';assert.throws(()=>validateScene(bad),/channel order/);});
 test('arm speaker tracks the light for UI changes, interpolation and OSC',()=>{const store=new Store();store.change(s=>{s.light.position=[1,2,3];s.speakerSetup.armOffset=[.1,.2,.3];});assert.deepEqual(store.state.speakers[16].position,[1.1,2.2,3.3]);store.state.light.position=[2,3,4];const messages=sceneMessages(store.state);assert.deepEqual(store.state.speakers[16].position,[2.1,3.2,4.3]);assert.deepEqual(messages.find(x=>x.address==='/speakers/xyz')!.args.slice(48),relative([2.1,3.2,4.3],store.state.listener));const next=structuredClone(store.state);next.light.position=[4,5,6];synchronizeArmSpeaker(next);const mid=interpolateFrames([{t:0,scene:store.state},{t:2,scene:next}],1);assert.deepEqual(mid.speakers[16].position,[3.1,4.2,5.3]);});
 test('Core presets use isolated storage and imported playback stays paused',()=>{const data=new Map([['dotarea.webgl.presets.v1','[{"name":"legacy"}]']]);const original=Object.getOwnPropertyDescriptor(globalThis,'localStorage');Object.defineProperty(globalThis,'localStorage',{value:{getItem:(k:string)=>data.get(k)||null,setItem:(k:string,v:string)=>data.set(k,v)},configurable:true});try{assert.deepEqual(loadPresets(),[]);const s=defaults();s.motion.playing=true;savePresets([{name:'Core test',scene:s}]);assert.ok(data.has(PRESET_KEY));const presets=loadPresets();assert.equal(presets[0].scene.motion.playing,false);assert.equal(presets[0].scene.speakers.length,18);assert.throws(()=>parsePresets([null]),/Invalid preset/);}finally{if(original)Object.defineProperty(globalThis,'localStorage',original);else Reflect.deleteProperty(globalThis,'localStorage');}});

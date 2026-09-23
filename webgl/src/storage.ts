@@ -12,7 +12,7 @@ export function parseRecording(v:unknown):Frame[]{if(!v||typeof v!=='object'||(v
 export function interpolateFrames(frames:Frame[],t:number):SceneState{
  let i=0;while(i<frames.length-2&&frames[i+1].t<t)i++;const a=frames[i],b=frames[i+1],f=Math.max(0,Math.min(1,(t-a.t)/(b.t-a.t)));
  const s=structuredClone(f===1?b.scene:a.scene);s.motion.playing=false;s.robot.control='joints';
- s.robot.base=mix3(a.scene.robot.base,b.scene.robot.base,f);s.acrylic.position=mix3(a.scene.acrylic.position,b.scene.acrylic.position,f);s.acrylic.yaw=mix(a.scene.acrylic.yaw,b.scene.acrylic.yaw,f);s.stone.position=mix3(a.scene.stone.position,b.scene.stone.position,f);
+ s.robot.base=mix3(a.scene.robot.base,b.scene.robot.base,f);s.acrylic.position=mix3(a.scene.acrylic.position,b.scene.acrylic.position,f);s.acrylic.yaw=mix(a.scene.acrylic.yaw,b.scene.acrylic.yaw,f);s.stone.position=mix3(a.scene.stone.position,b.scene.stone.position,f);s.stone.yaw=mix(a.scene.stone.yaw,b.scene.stone.yaw,f);
  s.robot.joints=a.scene.robot.joints.map((v,k)=>mix(v,b.scene.robot.joints[k],f));s.robot.target=mix3(a.scene.robot.target,b.scene.robot.target,f);
  s.light.position=mix3(a.scene.light.position,b.scene.light.position,f);s.light.intensity=mix(a.scene.light.intensity,b.scene.light.intensity,f);
  s.listener.position=mix3(a.scene.listener.position,b.scene.listener.position,f);s.listener.yaw=mix(a.scene.listener.yaw,b.scene.listener.yaw,f);
